@@ -46,7 +46,6 @@ function walkRows(tree: any, out: any[] = []): any[] {
 function getIconComponent(iconName: string): any {
   const rev = (globalThis as any).revenge;
   try {
-    // Check top-level asset finder
     if (rev?.assets?.getAssetByName) {
       return rev.assets.getAssetByName(iconName);
     }
@@ -154,7 +153,7 @@ function inject(res: any): any {
   const groups = walkRows(res);
   if (groups.length === 0) return res;
 
-  // 1. Top Section: Local Edit Message with PencilSparkleIcon
+  // 1. Top Section: Local Edit Message
   const topGroup = groups[0];
   const topTpl = topGroup?.find?.((r: any) => r?.props?.label != null) ?? topGroup?.[0];
 
@@ -167,7 +166,7 @@ function inject(res: any): any {
     if (editRow) topGroup.unshift(editRow);
   }
 
-  // 2. Bottom Section: Local Delete Message
+  // 2. Last Section: Local Delete Message
   const lastGroup = groups[groups.length - 1];
   const bottomTpl = lastGroup?.find?.((r: any) => r?.props?.label != null) ?? lastGroup?.[0];
 
@@ -183,44 +182,12 @@ function inject(res: any): any {
   return res;
 }
 
-function installWrapper(ns: any) {
-  const mod = ns?.default ?? ns;
-  if (typeof mod !== "function") return () => {};
-  const orig = mod;
-  const wrapped = (props: any) => {
-    const res = orig(props);
-    try {
-      return activeMessage ? inject(res) : res;
-    } catch {
-      return res;
-    }
-  };
-  ns.default = wrapped;
-  return () => {
-    if (ns.default === wrapped) ns.default = orig;
-  };
-}
-
-function onImportedPath(path: string, cb: (ns: any) => void): () => void {
-  const rev = (globalThis as any).revenge;
-  try {
-    return (
-      rev?.discord?.utils?.modules?.finders?.getModuleWithImportedPath(
-        path,
-        (ns: any) => cb(ns)
-      ) ?? (() => {})
-    );
-  } catch {
-    return () => {};
-  }
-}
-
 export default {
   start({ cleanup }: { cleanup: (fn: () => void) => void }) {
     const rev = (globalThis as any).revenge;
     const unpatch: Array<() => void> = [];
 
-    // Memory Store Hooks
+    // Message Store Hooks
     const MessageStore = rev?.discord?.stores?.MessageStore;
     if (MessageStore) {
       unpatch.push(
@@ -228,9 +195,7 @@ export default {
           if (!result) return result;
           const msgId = args[1] || result.id;
 
-          if (localDeletes.has(msgId)) {
-            return null;
-          }
+          if (localDeletes.has(msgId)) return null;
 
           if (localEdits.has(msgId)) {
             return {
@@ -254,33 +219,36 @@ export default {
       );
     }
 
-    // Intercept message on long press
-    unpatch.push(
-      onImportedPath(
-        "modules/action_sheet/native/ActionSheetActionCreators.tsx",
-        (ns: any) => {
-          const owner = ns?.default ?? ns;
-          if (typeof owner?.openLazy !== "function") return;
-          unpatch.push(
-            rev.patcher?.before(owner, "openLazy", (args: any) => {
-              const [, key, loc] = args ?? [];
-              activeMessage = key === "MessageLongPressActionSheet" ? loc?.message ?? null : null;
-              return args;
-            })
-          );
-        }
-      )
-    );
+    // Intercept openLazy using finders instead of string paths
+    const ActionSheetCreators = rev?.discord?.actions?.ActionSheetActionCreators;
+    if (ActionSheetCreators?.openLazy) {
+      unpatch.push(
+        rev.patcher?.before(ActionSheetCreators, "openLazy", (args: any) => {
+          const [, key, loc] = args ?? [];
+          activeMessage = key === "MessageLongPressActionSheet" ? loc?.message ?? null : null;
+          return args;
+        })
+      );
+    }
 
-    // Inject Rows
-    unpatch.push(
-      onImportedPath(
-        "modules/messages/native/long_press/LongPressMessageActionSheet.tsx",
-        (ns: any) => {
-          unpatch.push(installWrapper(ns));
-        }
-      )
-    );
+    // Direct module injection into LongPressMessageActionSheet
+    try {
+      const finders = rev?.modules?.finders;
+      if (finders?.getModule) {
+        finders.getModule(
+          (m: any) => typeof m?.default === "function" && m?.default?.name === "LongPressMessageActionSheet",
+          (mod: any) => {
+            if (mod?.default) {
+              unpatch.push(
+                rev.patcher?.after(mod, "default", (_args: any, res: any) => {
+                  return activeMessage ? inject(res) : res;
+                })
+              );
+            }
+          }
+        );
+      }
+    } catch {}
 
     cleanup(() => {
       for (const u of unpatch) u?.();
