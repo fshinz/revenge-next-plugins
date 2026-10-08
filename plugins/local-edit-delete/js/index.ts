@@ -1,5 +1,3 @@
-import { plugin } from "@revenge-mod/plugins";
-
 let activeMessage: any = null;
 let editIconGetter: () => any = () => null;
 let deleteIconGetter: () => any = () => null;
@@ -80,7 +78,6 @@ function triggerLocalEdit(message: any) {
   const channelId = message.channel_id;
   const messageId = message.id;
 
-  // Utilize native Discord alert modal if available, or prompt fallback
   const Alerts = (revenge as any).discord?.actions?.Alerts;
   if (Alerts?.show) {
     Alerts.show({
@@ -191,8 +188,8 @@ function onImportedPath(path: string, cb: (ns: any) => void): () => void {
   }
 }
 
-export default plugin({
-  start({ cleanup }) {
+export default {
+  start({ cleanup }: { cleanup: (fn: () => void) => void }) {
     editIconGetter = makeIconGetter("PencilIcon");
     deleteIconGetter = makeIconGetter("TrashIcon");
 
@@ -260,4 +257,4 @@ export default plugin({
       deleteIconGetter = () => null;
     });
   },
-});
+};
