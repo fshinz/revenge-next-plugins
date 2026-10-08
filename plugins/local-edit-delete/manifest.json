@@ -1,12 +1,19 @@
 {
-  "manifestVersion": 1,
-  "id": "local-edit-delete",
-  "name": "Local Edit & Delete",
-  "version": "1.0.0",
-  "description": "Locally edit or hide any message on your client.",
-  "author": "fshinz",
-  "main": "js/index.ts",
-  "dependencies": {
-    "revenge.api": ">=0.1.0"
-  }
+	"format": 1,
+	"id": "com.fshinz.localeditdelete",
+	"name": "Local Edit & Delete",
+	"description": "Locally edit or hide any message directly from the long-press action sheet.",
+	"author": "fshinz",
+	"version": "1.0.0",
+	"dependencies": {
+		"revenge.api": {
+			"version": ">=1 <2"
+		},
+		"discord": {
+			"version": "*"
+		}
+	},
+	"dist": {
+		"script": "index.js"
+	}
 }
