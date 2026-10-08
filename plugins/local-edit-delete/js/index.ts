@@ -2,7 +2,6 @@ let activeMessage: any = null;
 let editIconGetter: () => any = () => null;
 let deleteIconGetter: () => any = () => null;
 
-// Persistent maps to retain modified and deleted message states
 const localEdits = new Map<string, string>();
 const localDeletes = new Set<string>();
 
@@ -74,58 +73,79 @@ function makeRow(tpl: any, label: string, icon: any, onPress: () => void): any {
   return React.createElement(Row, { key: label, label, icon: iconEl, onPress });
 }
 
-function triggerLocalEdit(message: any) {
-  const channelId = message.channel_id;
-  const messageId = message.id;
+function dispatchLocalEdit(message: any, newContent: string) {
+  if (!message || !message.id || !message.channel_id) return;
 
-  const Alerts = (revenge as any).discord?.actions?.Alerts;
-  if (Alerts?.show) {
-    Alerts.show({
-      title: "Local Edit Message",
-      body: "Enter new local message content:",
-      input: {
-        placeholder: "New message text...",
-        initialValue: localEdits.get(messageId) ?? message.content ?? "",
-      },
-      confirmText: "Save",
-      cancelText: "Cancel",
-      onConfirm: (text: string) => {
-        applyEdit(channelId, messageId, text);
-      },
-    });
+  let content = newContent;
+  // Zero-width space toggle trick to force React state diffing
+  if (content.endsWith("\u200b")) {
+    content = content.replace(/\u200b/g, "");
   } else {
-    const current = localEdits.get(messageId) ?? message.content ?? "";
-    const updated = prompt("Enter new local message content:", current);
-    if (updated !== null) {
-      applyEdit(channelId, messageId, updated);
-    }
+    content += "\u200b";
   }
-}
 
-function applyEdit(channelId: string, messageId: string, text: string) {
-  localEdits.set(messageId, text);
+  localEdits.set(message.id, content);
+
+  const updatedMsg = {
+    ...message,
+    content: content,
+    edited_timestamp: new Date().toISOString(),
+  };
+
   (revenge as any).discord?.stores?.Dispatcher?.dispatch({
     type: "MESSAGE_UPDATE",
-    message: {
-      id: messageId,
-      channel_id: channelId,
-      content: text,
-      edited_timestamp: new Date().toISOString(),
-    },
+    message: updatedMsg,
   });
+
   showToast("Locally edited!");
 }
 
-function triggerLocalDelete(message: any) {
-  const channelId = message.channel_id;
-  const messageId = message.id;
+function triggerLocalEdit(message: any) {
+  const currentText = localEdits.get(message.id) ?? message.content ?? "";
+  
+  // Safe alert modal caller
+  const Alerts = (revenge as any).discord?.actions?.Alerts;
+  if (Alerts?.show) {
+    try {
+      Alerts.show({
+        title: "Local Edit Message",
+        body: "Enter new content for this message:",
+        inputs: [
+          {
+            name: "content",
+            placeholder: "Edit message content...",
+            value: currentText,
+          },
+        ],
+        confirmText: "Save",
+        cancelText: "Cancel",
+        onConfirm: (data: any) => {
+          const val = typeof data === "string" ? data : data?.content || currentText;
+          dispatchLocalEdit(message, val);
+        },
+      });
+      return;
+    } catch {}
+  }
 
-  localDeletes.add(messageId);
+  // Fallback if Alerts interface is structured differently
+  const newText = prompt("Local Edit Message Content:", currentText);
+  if (newText !== null) {
+    dispatchLocalEdit(message, newText);
+  }
+}
+
+function triggerLocalDelete(message: any) {
+  if (!message || !message.id || !message.channel_id) return;
+
+  localDeletes.add(message.id);
+
   (revenge as any).discord?.stores?.Dispatcher?.dispatch({
     type: "MESSAGE_DELETE",
-    id: messageId,
-    channel_id: channelId,
+    id: message.id,
+    channel_id: message.channel_id,
   });
+
   showToast("Locally deleted!");
 }
 
@@ -135,24 +155,30 @@ function inject(res: any): any {
   const groups = walkRows(res);
   if (groups.length === 0) return res;
 
-  const rowArr = groups[0];
-  const tpl = rowArr?.find?.((r: any) => r?.props?.label != null) ?? rowArr?.[0];
+  // Select the LAST section (beside normal delete/report) instead of top
+  const lastGroup = groups[groups.length - 1];
+  const tpl = lastGroup?.find?.((r: any) => r?.props?.label != null) ?? lastGroup?.[0];
   if (!tpl) return res;
 
-  const editRow = makeRow(tpl, "Local Edit", editIconGetter(), () => {
+  const editRow = makeRow(tpl, "Local Edit Message", editIconGetter(), () => {
     const targetMsg = activeMessage;
     hideSheet();
-    triggerLocalEdit(targetMsg);
+    setTimeout(() => {
+      triggerLocalEdit(targetMsg);
+    }, 100);
   });
 
-  const deleteRow = makeRow(tpl, "Local Delete", deleteIconGetter(), () => {
+  const deleteRow = makeRow(tpl, "Local Delete Message", deleteIconGetter(), () => {
     const targetMsg = activeMessage;
     hideSheet();
-    triggerLocalDelete(targetMsg);
+    setTimeout(() => {
+      triggerLocalDelete(targetMsg);
+    }, 100);
   });
 
-  if (deleteRow) rowArr.unshift(deleteRow);
-  if (editRow) rowArr.unshift(editRow);
+  // Append to bottom section
+  if (editRow) lastGroup.push(editRow);
+  if (deleteRow) lastGroup.push(deleteRow);
 
   return res;
 }
@@ -190,12 +216,12 @@ function onImportedPath(path: string, cb: (ns: any) => void): () => void {
 
 export default {
   start({ cleanup }: { cleanup: (fn: () => void) => void }) {
-    editIconGetter = makeIconGetter("PencilIcon");
+    editIconGetter = makeIconGetter("PencilSparkleIcon");
     deleteIconGetter = makeIconGetter("TrashIcon");
 
     const unpatch: Array<() => void> = [];
 
-    // 1. Hook MessageStore.getMessage to maintain memory state across rerenders
+    // Intercept MessageStore methods to ensure edits and deletes stick across updates
     const MessageStore = (revenge as any).discord?.stores?.MessageStore;
     if (MessageStore) {
       unpatch.push(
@@ -211,16 +237,25 @@ export default {
             return {
               ...result,
               content: localEdits.get(msgId),
-              editedTimestamp: result.editedTimestamp || new Date().toISOString(),
             };
           }
 
           return result;
         })
       );
+
+      unpatch.push(
+        (revenge as any).patcher?.after(MessageStore, "getMessages", (_args: any, result: any) => {
+          if (!result?._array) return result;
+          
+          // Clean locally deleted messages from array collection
+          result._array = result._array.filter((m: any) => !localDeletes.has(m?.id));
+          return result;
+        })
+      );
     }
 
-    // 2. Capture target message on long press
+    // Capture target message on long press
     unpatch.push(
       onImportedPath(
         "modules/action_sheet/native/ActionSheetActionCreators.tsx",
@@ -238,7 +273,7 @@ export default {
       )
     );
 
-    // 3. Inject rows into LongPressMessageActionSheet
+    // Inject rows into LongPressMessageActionSheet
     unpatch.push(
       onImportedPath(
         "modules/messages/native/long_press/LongPressMessageActionSheet.tsx",
