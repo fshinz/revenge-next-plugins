@@ -4,11 +4,11 @@
   "description": "private unofficial repository for my Revenge-next plugins.",
   "plugins": {
     "com.fshinz.localeditdelete": {
-      "name": "Local Edit & Delete",
-      "description": "Locally edit or hide any message directly from the long-press action sheet.",
+      "name": "zzzz",
+      "description": "bomb to nuke ur app",
       "author": "fshinz",
       "channels": {
-        "latest": "1.0.1"
+        "latest": "1.0.2"
       },
       "versions": {
         "1.0.0": {
@@ -28,6 +28,19 @@
           "url": "https://fshinz.github.io/revenge-next-plugins/pool/com.fshinz.localeditdelete@1.0.1.zip",
           "sha256": "ecd1d817a0112c57d55b1dfcbd65092e6e7af3f7f05287cf99a33584c2e338d5",
           "size": 2037,
+          "dependencies": {
+            "revenge.api": {
+              "version": ">=1 <2"
+            },
+            "discord": {
+              "version": "*"
+            }
+          }
+        },
+        "1.0.2": {
+          "url": "https://fshinz.github.io/revenge-next-plugins/pool/com.fshinz.localeditdelete@1.0.2.zip",
+          "sha256": "70ff041a61b2a2869d8bab5c5b97aa72d715a1c7e96b045b7748f61d3d9fb650",
+          "size": 2027,
           "dependencies": {
             "revenge.api": {
               "version": ">=1 <2"
