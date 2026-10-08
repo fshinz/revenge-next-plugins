@@ -1,0 +1,41 @@
+# PR build validation
+
+name: Validate
+
+on:
+  pull_request:
+    paths:
+      - 'plugins/**'
+      - 'cli/**'
+      - '.github/**'
+      - 'repo.config.json'
+      - '*.gradle.kts'
+      - 'gradle/**'
+      - 'package.json'
+      - 'bun.lock'
+      - 'tsconfig.json'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 25
+
+      - name: Lint the workflow scripts
+        run: shellcheck .github/scripts/*.sh
+
+      - name: Build all plugins
+        run: ./gradlew --no-daemon packageAllPlugins
+
+      - name: Generate index from built artifacts
+        run: |
+          bun run generate-index \
+            --dist build/dist \
+            --base-url https://revenge.local \
+            --out /tmp/index.json
+          cat /tmp/index.json
