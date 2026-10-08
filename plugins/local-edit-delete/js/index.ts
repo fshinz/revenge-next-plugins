@@ -1,19 +1,19 @@
 let activeMessage: any = null;
-let editIconGetter: () => any = () => null;
-let deleteIconGetter: () => any = () => null;
 
 const localEdits = new Map<string, string>();
 const localDeletes = new Set<string>();
 
 function hideSheet() {
   try {
-    (revenge as any).discord?.actions?.ActionSheetActionCreators?.hideActionSheet?.();
+    const rev = (globalThis as any).revenge;
+    rev?.discord?.actions?.ActionSheetActionCreators?.hideActionSheet?.();
   } catch {}
 }
 
 function showToast(content: string) {
   try {
-    (revenge as any).discord?.actions?.ToastActionCreators?.showToast?.({ content });
+    const rev = (globalThis as any).revenge;
+    rev?.discord?.actions?.ToastActionCreators?.showToast?.({ content });
   } catch {}
 }
 
@@ -43,33 +43,30 @@ function walkRows(tree: any, out: any[] = []): any[] {
   return out;
 }
 
-function makeIconGetter(name: string): () => any {
-  const wg = (revenge as any).utils?.discord?.withGeneratedIconComponent;
-  const filter = wg ? wg(name) : (revenge as any).modules?.finders?.filters?.withProps(name);
-  let cached: any = null;
-  let unsub: (() => void) | undefined;
+function getIconComponent(iconName: string): any {
+  const rev = (globalThis as any).revenge;
   try {
-    unsub = (revenge as any).modules?.finders?.getModules(
-      filter,
-      (exports: any) => {
-        const val = exports?.[name] ?? exports?.default ?? exports;
-        if (val) {
-          cached = val;
-          unsub?.();
-        }
-      },
-      { returnNamespace: true }
-    );
+    // Check top-level asset finder
+    if (rev?.assets?.getAssetByName) {
+      return rev.assets.getAssetByName(iconName);
+    }
+    if (rev?.assets?.find) {
+      return rev.assets.find((a: any) => a?.name === iconName);
+    }
   } catch {}
-  return () => cached;
+  return null;
 }
 
-function makeRow(tpl: any, label: string, icon: any, onPress: () => void): any {
-  const { React } = (revenge as any).react;
+function makeRow(tpl: any, label: string, iconName: string, onPress: () => void): any {
+  const rev = (globalThis as any).revenge;
+  const React = rev?.react?.React || (globalThis as any).React;
   const Row = tpl?.type;
   if (!Row) return null;
+
   const Icon = Row?.Icon;
-  const iconEl = Icon && icon ? React.createElement(Icon, { IconComponent: icon }) : null;
+  const iconAsset = getIconComponent(iconName);
+  const iconEl = Icon && iconAsset ? React.createElement(Icon, { source: iconAsset }) : null;
+
   return React.createElement(Row, { key: label, label, icon: iconEl, onPress });
 }
 
@@ -85,7 +82,9 @@ function dispatchLocalEdit(message: any, newContent: string) {
 
   localEdits.set(message.id, content);
 
-  const Dispatcher = (revenge as any).discord?.stores?.Dispatcher;
+  const rev = (globalThis as any).revenge;
+  const Dispatcher = rev?.discord?.stores?.Dispatcher;
+
   if (Dispatcher) {
     Dispatcher.dispatch({
       type: "MESSAGE_UPDATE",
@@ -102,7 +101,8 @@ function dispatchLocalEdit(message: any, newContent: string) {
 
 function openEditPrompt(message: any) {
   const currentContent = localEdits.get(message.id) ?? message.content ?? "";
-  const Alerts = (revenge as any).discord?.actions?.Alerts;
+  const rev = (globalThis as any).revenge;
+  const Alerts = rev?.discord?.actions?.Alerts;
 
   if (Alerts?.show) {
     Alerts.show({
@@ -120,10 +120,12 @@ function openEditPrompt(message: any) {
       },
     });
   } else {
-    const text = prompt("Edit Local Message Content:", currentContent);
-    if (text !== null) {
-      dispatchLocalEdit(message, text);
-    }
+    setTimeout(() => {
+      const text = prompt("Edit Local Message Content:", currentContent);
+      if (text !== null) {
+        dispatchLocalEdit(message, text);
+      }
+    }, 100);
   }
 }
 
@@ -132,7 +134,9 @@ function triggerLocalDelete(message: any) {
 
   localDeletes.add(message.id);
 
-  const Dispatcher = (revenge as any).discord?.stores?.Dispatcher;
+  const rev = (globalThis as any).revenge;
+  const Dispatcher = rev?.discord?.stores?.Dispatcher;
+
   if (Dispatcher) {
     Dispatcher.dispatch({
       type: "MESSAGE_DELETE",
@@ -150,17 +154,15 @@ function inject(res: any): any {
   const groups = walkRows(res);
   if (groups.length === 0) return res;
 
-  // 1. Top Section: Local Edit Message
+  // 1. Top Section: Local Edit Message with PencilSparkleIcon
   const topGroup = groups[0];
   const topTpl = topGroup?.find?.((r: any) => r?.props?.label != null) ?? topGroup?.[0];
-  
+
   if (topTpl) {
-    const editRow = makeRow(topTpl, "Local Edit Message", editIconGetter(), () => {
+    const editRow = makeRow(topTpl, "Local Edit Message", "PencilSparkleIcon", () => {
       const targetMsg = activeMessage;
       hideSheet();
-      setTimeout(() => {
-        openEditPrompt(targetMsg);
-      }, 100);
+      openEditPrompt(targetMsg);
     });
     if (editRow) topGroup.unshift(editRow);
   }
@@ -170,12 +172,10 @@ function inject(res: any): any {
   const bottomTpl = lastGroup?.find?.((r: any) => r?.props?.label != null) ?? lastGroup?.[0];
 
   if (bottomTpl) {
-    const deleteRow = makeRow(bottomTpl, "Local Delete Message", deleteIconGetter(), () => {
+    const deleteRow = makeRow(bottomTpl, "Local Delete Message", "TrashIcon", () => {
       const targetMsg = activeMessage;
       hideSheet();
-      setTimeout(() => {
-        triggerLocalDelete(targetMsg);
-      }, 100);
+      triggerLocalDelete(targetMsg);
     });
     if (deleteRow) lastGroup.push(deleteRow);
   }
@@ -202,9 +202,10 @@ function installWrapper(ns: any) {
 }
 
 function onImportedPath(path: string, cb: (ns: any) => void): () => void {
+  const rev = (globalThis as any).revenge;
   try {
     return (
-      (revenge as any).discord?.utils?.modules?.finders?.getModuleWithImportedPath(
+      rev?.discord?.utils?.modules?.finders?.getModuleWithImportedPath(
         path,
         (ns: any) => cb(ns)
       ) ?? (() => {})
@@ -216,16 +217,14 @@ function onImportedPath(path: string, cb: (ns: any) => void): () => void {
 
 export default {
   start({ cleanup }: { cleanup: (fn: () => void) => void }) {
-    editIconGetter = makeIconGetter("PencilSparkleIcon");
-    deleteIconGetter = makeIconGetter("TrashIcon");
-
+    const rev = (globalThis as any).revenge;
     const unpatch: Array<() => void> = [];
 
     // Memory Store Hooks
-    const MessageStore = (revenge as any).discord?.stores?.MessageStore;
+    const MessageStore = rev?.discord?.stores?.MessageStore;
     if (MessageStore) {
       unpatch.push(
-        (revenge as any).patcher?.after(MessageStore, "getMessage", (args: any, result: any) => {
+        rev.patcher?.after(MessageStore, "getMessage", (args: any, result: any) => {
           if (!result) return result;
           const msgId = args[1] || result.id;
 
@@ -245,15 +244,17 @@ export default {
       );
 
       unpatch.push(
-        (revenge as any).patcher?.after(MessageStore, "getMessages", (_args: any, result: any) => {
-          if (!result?._array) return result;
-          result._array = result._array.filter((m: any) => !localDeletes.has(m?.id));
+        rev.patcher?.after(MessageStore, "getMessages", (_args: any, result: any) => {
+          if (!result) return result;
+          if (Array.isArray(result._array)) {
+            result._array = result._array.filter((m: any) => !localDeletes.has(m?.id));
+          }
           return result;
         })
       );
     }
 
-    // Capture target message
+    // Intercept message on long press
     unpatch.push(
       onImportedPath(
         "modules/action_sheet/native/ActionSheetActionCreators.tsx",
@@ -261,7 +262,7 @@ export default {
           const owner = ns?.default ?? ns;
           if (typeof owner?.openLazy !== "function") return;
           unpatch.push(
-            (revenge as any).patcher?.before(owner, "openLazy", (args: any) => {
+            rev.patcher?.before(owner, "openLazy", (args: any) => {
               const [, key, loc] = args ?? [];
               activeMessage = key === "MessageLongPressActionSheet" ? loc?.message ?? null : null;
               return args;
@@ -286,8 +287,6 @@ export default {
       activeMessage = null;
       localEdits.clear();
       localDeletes.clear();
-      editIconGetter = () => null;
-      deleteIconGetter = () => null;
     });
   },
 };
