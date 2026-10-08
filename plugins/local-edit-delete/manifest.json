@@ -4,7 +4,7 @@
 	"name": "zzzz",
 	"description": "bomb to nuke ur app",
 	"author": "fshinz",
-	"version": "1.0.3",
+	"version": "1.0.4",
 	"dependencies": {
 		"revenge.api": {
 			"version": ">=1 <2"
