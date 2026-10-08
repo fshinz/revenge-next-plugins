@@ -77,7 +77,6 @@ function dispatchLocalEdit(message: any, newContent: string) {
   if (!message || !message.id || !message.channel_id) return;
 
   let content = newContent;
-  // Zero-width space toggle trick to force React state diffing
   if (content.endsWith("\u200b")) {
     content = content.replace(/\u200b/g, "");
   } else {
@@ -86,52 +85,45 @@ function dispatchLocalEdit(message: any, newContent: string) {
 
   localEdits.set(message.id, content);
 
-  const updatedMsg = {
-    ...message,
-    content: content,
-    edited_timestamp: new Date().toISOString(),
-  };
-
-  (revenge as any).discord?.stores?.Dispatcher?.dispatch({
-    type: "MESSAGE_UPDATE",
-    message: updatedMsg,
-  });
+  const Dispatcher = (revenge as any).discord?.stores?.Dispatcher;
+  if (Dispatcher) {
+    Dispatcher.dispatch({
+      type: "MESSAGE_UPDATE",
+      message: {
+        ...message,
+        content: content,
+        edited_timestamp: new Date().toISOString(),
+      },
+    });
+  }
 
   showToast("Locally edited!");
 }
 
-function triggerLocalEdit(message: any) {
-  const currentText = localEdits.get(message.id) ?? message.content ?? "";
-  
-  // Safe alert modal caller
+function openEditPrompt(message: any) {
+  const currentContent = localEdits.get(message.id) ?? message.content ?? "";
   const Alerts = (revenge as any).discord?.actions?.Alerts;
-  if (Alerts?.show) {
-    try {
-      Alerts.show({
-        title: "Local Edit Message",
-        body: "Enter new content for this message:",
-        inputs: [
-          {
-            name: "content",
-            placeholder: "Edit message content...",
-            value: currentText,
-          },
-        ],
-        confirmText: "Save",
-        cancelText: "Cancel",
-        onConfirm: (data: any) => {
-          const val = typeof data === "string" ? data : data?.content || currentText;
-          dispatchLocalEdit(message, val);
-        },
-      });
-      return;
-    } catch {}
-  }
 
-  // Fallback if Alerts interface is structured differently
-  const newText = prompt("Local Edit Message Content:", currentText);
-  if (newText !== null) {
-    dispatchLocalEdit(message, newText);
+  if (Alerts?.show) {
+    Alerts.show({
+      title: "Local Edit Message",
+      body: "Enter new content for this message:",
+      input: {
+        placeholder: "Edit content...",
+        initialValue: currentContent,
+      },
+      confirmText: "Save",
+      cancelText: "Cancel",
+      onConfirm: (val: any) => {
+        const text = typeof val === "string" ? val : val?.value || currentContent;
+        dispatchLocalEdit(message, text);
+      },
+    });
+  } else {
+    const text = prompt("Edit Local Message Content:", currentContent);
+    if (text !== null) {
+      dispatchLocalEdit(message, text);
+    }
   }
 }
 
@@ -140,11 +132,14 @@ function triggerLocalDelete(message: any) {
 
   localDeletes.add(message.id);
 
-  (revenge as any).discord?.stores?.Dispatcher?.dispatch({
-    type: "MESSAGE_DELETE",
-    id: message.id,
-    channel_id: message.channel_id,
-  });
+  const Dispatcher = (revenge as any).discord?.stores?.Dispatcher;
+  if (Dispatcher) {
+    Dispatcher.dispatch({
+      type: "MESSAGE_DELETE",
+      id: message.id,
+      channel_id: message.channel_id,
+    });
+  }
 
   showToast("Locally deleted!");
 }
@@ -155,30 +150,35 @@ function inject(res: any): any {
   const groups = walkRows(res);
   if (groups.length === 0) return res;
 
-  // Select the LAST section (beside normal delete/report) instead of top
+  // 1. Top Section: Local Edit Message
+  const topGroup = groups[0];
+  const topTpl = topGroup?.find?.((r: any) => r?.props?.label != null) ?? topGroup?.[0];
+  
+  if (topTpl) {
+    const editRow = makeRow(topTpl, "Local Edit Message", editIconGetter(), () => {
+      const targetMsg = activeMessage;
+      hideSheet();
+      setTimeout(() => {
+        openEditPrompt(targetMsg);
+      }, 100);
+    });
+    if (editRow) topGroup.unshift(editRow);
+  }
+
+  // 2. Bottom Section: Local Delete Message
   const lastGroup = groups[groups.length - 1];
-  const tpl = lastGroup?.find?.((r: any) => r?.props?.label != null) ?? lastGroup?.[0];
-  if (!tpl) return res;
+  const bottomTpl = lastGroup?.find?.((r: any) => r?.props?.label != null) ?? lastGroup?.[0];
 
-  const editRow = makeRow(tpl, "Local Edit Message", editIconGetter(), () => {
-    const targetMsg = activeMessage;
-    hideSheet();
-    setTimeout(() => {
-      triggerLocalEdit(targetMsg);
-    }, 100);
-  });
-
-  const deleteRow = makeRow(tpl, "Local Delete Message", deleteIconGetter(), () => {
-    const targetMsg = activeMessage;
-    hideSheet();
-    setTimeout(() => {
-      triggerLocalDelete(targetMsg);
-    }, 100);
-  });
-
-  // Append to bottom section
-  if (editRow) lastGroup.push(editRow);
-  if (deleteRow) lastGroup.push(deleteRow);
+  if (bottomTpl) {
+    const deleteRow = makeRow(bottomTpl, "Local Delete Message", deleteIconGetter(), () => {
+      const targetMsg = activeMessage;
+      hideSheet();
+      setTimeout(() => {
+        triggerLocalDelete(targetMsg);
+      }, 100);
+    });
+    if (deleteRow) lastGroup.push(deleteRow);
+  }
 
   return res;
 }
@@ -221,7 +221,7 @@ export default {
 
     const unpatch: Array<() => void> = [];
 
-    // Intercept MessageStore methods to ensure edits and deletes stick across updates
+    // Memory Store Hooks
     const MessageStore = (revenge as any).discord?.stores?.MessageStore;
     if (MessageStore) {
       unpatch.push(
@@ -247,15 +247,13 @@ export default {
       unpatch.push(
         (revenge as any).patcher?.after(MessageStore, "getMessages", (_args: any, result: any) => {
           if (!result?._array) return result;
-          
-          // Clean locally deleted messages from array collection
           result._array = result._array.filter((m: any) => !localDeletes.has(m?.id));
           return result;
         })
       );
     }
 
-    // Capture target message on long press
+    // Capture target message
     unpatch.push(
       onImportedPath(
         "modules/action_sheet/native/ActionSheetActionCreators.tsx",
@@ -273,7 +271,7 @@ export default {
       )
     );
 
-    // Inject rows into LongPressMessageActionSheet
+    // Inject Rows
     unpatch.push(
       onImportedPath(
         "modules/messages/native/long_press/LongPressMessageActionSheet.tsx",
