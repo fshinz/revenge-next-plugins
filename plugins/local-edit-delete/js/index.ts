@@ -17,56 +17,64 @@ function showToast(content: string) {
   } catch {}
 }
 
-function isRowArray(arr: any[]): boolean {
-  if (!Array.isArray(arr) || arr.length === 0) return false;
-  const first = arr[0];
-  return (
-    first?.type?.name === "ActionSheetRow" ||
-    (first?.props && typeof first.props.label === "string")
-  );
+function findInReactTree(root: any, predicate: (node: any) => boolean, depth = 0): any {
+  if (!root || typeof root !== 'object' || depth > 30) return undefined;
+  if (predicate(root)) return root;
+
+  if (Array.isArray(root)) {
+    for (const entry of root) {
+      const found = findInReactTree(entry, predicate, depth + 1);
+      if (found) return found;
+    }
+    return undefined;
+  }
+
+  const children = root.props?.children;
+  if (Array.isArray(children)) {
+    for (const child of children) {
+      const found = findInReactTree(child, predicate, depth + 1);
+      if (found) return found;
+    }
+  } else if (children && typeof children === 'object') {
+    const found = findInReactTree(children, predicate, depth + 1);
+    if (found) return found;
+  }
+
+  return undefined;
 }
 
-function walkRows(tree: any, out: any[] = []): any[] {
-  if (!tree || typeof tree !== "object") return out;
-  if (Array.isArray(tree)) {
-    if (isRowArray(tree) && !out.includes(tree)) out.push(tree);
-    tree.forEach((c: any) => walkRows(c, out));
-    return out;
+let actionSheetRow: any;
+function ActionSheetRowComponent() {
+  if (!actionSheetRow) {
+    const rev = (globalThis as any).revenge;
+    const finders = rev?.modules?.finders;
+    if (finders?.lookupModule) {
+      actionSheetRow = finders.lookupModule<any>(finders.filters.withProps('ActionSheetRow'))?.[0]?.ActionSheetRow;
+    }
   }
-  const k = tree?.props?.children;
-  if (Array.isArray(k)) {
-    if (isRowArray(k) && !out.includes(k)) out.push(k);
-    k.forEach((c: any) => walkRows(c, out));
-  } else {
-    walkRows(k, out);
-  }
-  return out;
+  return actionSheetRow;
 }
 
-function getIconComponent(iconName: string): any {
+function findGroupParent(tree: any): any {
   const rev = (globalThis as any).revenge;
+  const Design = rev?.discord?.design;
+  const ActionSheetRow = ActionSheetRowComponent();
+  
+  return findInReactTree(tree, (c: any) => {
+    if (Array.isArray(c) && c.some((child: any) => child?.type === ActionSheetRow || child?.type?.name === 'ActionSheetRowGroup')) {
+      return true;
+    }
+    return c?.type?.name === 'ActionSheetRowGroup';
+  });
+}
+
+function getAssetId(name: string) {
   try {
-    if (rev?.assets?.getAssetByName) {
-      return rev.assets.getAssetByName(iconName);
-    }
-    if (rev?.assets?.find) {
-      return rev.assets.find((a: any) => a?.name === iconName);
-    }
-  } catch {}
-  return null;
-}
-
-function makeRow(tpl: any, label: string, iconName: string, onPress: () => void): any {
-  const rev = (globalThis as any).revenge;
-  const React = rev?.react?.React || (globalThis as any).React;
-  const Row = tpl?.type;
-  if (!Row) return null;
-
-  const Icon = Row?.Icon;
-  const iconAsset = getIconComponent(iconName);
-  const iconEl = Icon && iconAsset ? React.createElement(Icon, { source: iconAsset }) : null;
-
-  return React.createElement(Row, { key: label, label, icon: iconEl, onPress });
+    const rev = (globalThis as any).revenge;
+    return rev?.assets?.getAssetIdByName?.(name) ?? rev?.assets?.getAssetByName?.(name);
+  } catch {
+    return null;
+  }
 }
 
 function dispatchLocalEdit(message: any, newContent: string) {
@@ -98,33 +106,99 @@ function dispatchLocalEdit(message: any, newContent: string) {
   showToast("Locally edited!");
 }
 
-function openEditPrompt(message: any) {
-  const currentContent = localEdits.get(message.id) ?? message.content ?? "";
+// Interactive Preview Modal Component
+function LocalEditModalContent({ message, onTextChange }: { message: any; onTextChange: (val: string) => void }) {
   const rev = (globalThis as any).revenge;
-  const Alerts = rev?.discord?.actions?.Alerts;
+  const React = rev?.react?.React || (globalThis as any).React;
+  const ReactNative = rev?.externals?.reactNative || rev?.reactNative || (globalThis as any).ReactNative;
+  const TextInput = rev?.discord?.design?.TextInput || ReactNative?.TextInput;
+  const Text = rev?.discord?.design?.Text || ReactNative?.Text;
+  const View = ReactNative?.View || "View";
 
-  if (Alerts?.show) {
-    Alerts.show({
-      title: "Local Edit Message",
-      body: "Enter new content for this message:",
-      input: {
-        placeholder: "Edit content...",
-        initialValue: currentContent,
+  const initialText = localEdits.get(message.id) ?? message.content ?? "";
+  const [text, setText] = React.useState(initialText);
+
+  return React.createElement(
+    View,
+    { style: { width: "100%", marginTop: 8 } },
+    React.createElement(
+      View,
+      {
+        style: {
+          backgroundColor: "rgba(0,0,0,0.15)",
+          padding: 12,
+          borderRadius: 8,
+          marginBottom: 12,
+          borderLeftWidth: 3,
+          borderLeftColor: "#5865F2",
+        }
       },
-      confirmText: "Save",
-      cancelText: "Cancel",
-      onConfirm: (val: any) => {
-        const text = typeof val === "string" ? val : val?.value || currentContent;
-        dispatchLocalEdit(message, text);
+      React.createElement(Text, { variant: "text-xs/semibold", color: "text-muted", style: { marginBottom: 4 } }, "ORIGINAL MESSAGE PREVIEW:"),
+      React.createElement(Text, { variant: "text-sm/normal", color: "text-default" }, message.content || "(empty)")
+    ),
+    React.createElement(TextInput, {
+      placeholder: "Write new message content...",
+      value: text,
+      multiline: true,
+      autoFocus: true,
+      onChangeText: (val: string) => {
+        setText(val);
+        onTextChange(val);
       },
-    });
-  } else {
-    setTimeout(() => {
-      const text = prompt("Edit Local Message Content:", currentContent);
-      if (text !== null) {
-        dispatchLocalEdit(message, text);
+      style: {
+        minHeight: 80,
+        textAlignVertical: "top",
+        padding: 8,
+        borderRadius: 8,
+        backgroundColor: "rgba(0,0,0,0.1)",
       }
-    }, 100);
+    })
+  );
+}
+
+function openEditAlert(message: any) {
+  const rev = (globalThis as any).revenge;
+  const Alerts = rev?.discord?.actions?.AlertActionCreators || rev?.discord?.actions?.Alerts;
+  const Design = rev?.discord?.design;
+  const React = rev?.react?.React;
+
+  let pendingText = localEdits.get(message.id) ?? message.content ?? "";
+
+  if (Alerts?.openAlert && Design?.AlertModal && Design?.AlertActionButton) {
+    const alertKey = "LocalEditAlertModal";
+    Alerts.openAlert(
+      alertKey,
+      React.createElement(Design.AlertModal, {
+        title: "Local Edit Message",
+        content: React.createElement(LocalEditModalContent, {
+          message,
+          onTextChange: (val: string) => { pendingText = val; }
+        }),
+        actions: React.createElement(
+          React.Fragment,
+          null,
+          React.createElement(Design.AlertActionButton, {
+            text: "Save",
+            variant: "primary",
+            onPress: () => {
+              Alerts.dismissAlert(alertKey);
+              dispatchLocalEdit(message, pendingText);
+            }
+          }),
+          React.createElement(Design.AlertActionButton, {
+            text: "Cancel",
+            variant: "secondary",
+            onPress: () => Alerts.dismissAlert(alertKey)
+          })
+        )
+      })
+    );
+  } else {
+    // Fallback if native AlertModal isn't loaded
+    const res = prompt("Edit Message Locally:", pendingText);
+    if (res !== null) {
+      dispatchLocalEdit(message, res);
+    }
   }
 }
 
@@ -147,39 +221,50 @@ function triggerLocalDelete(message: any) {
   showToast("Locally deleted!");
 }
 
-function inject(res: any): any {
-  if (!res || !activeMessage?.id) return res;
+function inject(rendered: any, target: any): boolean {
+  const ActionSheetRow = ActionSheetRowComponent();
+  if (!ActionSheetRow) return false;
 
-  const groups = walkRows(res);
-  if (groups.length === 0) return res;
+  const rev = (globalThis as any).revenge;
+  const React = rev?.react?.React;
 
-  // 1. Top Section: Local Edit Message
-  const topGroup = groups[0];
-  const topTpl = topGroup?.find?.((r: any) => r?.props?.label != null) ?? topGroup?.[0];
-
-  if (topTpl) {
-    const editRow = makeRow(topTpl, "Local Edit Message", "PencilSparkleIcon", () => {
-      const targetMsg = activeMessage;
+  const editRow = React.createElement(ActionSheetRow, {
+    key: "local-edit-row",
+    label: "Local Edit Message",
+    subLabel: "Modify content visible only to you",
+    icon: React.createElement(ActionSheetRow.Icon, { source: getAssetId("PencilSparkleIcon") }),
+    onPress: () => {
       hideSheet();
-      openEditPrompt(targetMsg);
-    });
-    if (editRow) topGroup.unshift(editRow);
+      openEditAlert(target);
+    }
+  });
+
+  const deleteRow = React.createElement(ActionSheetRow, {
+    key: "local-delete-row",
+    label: "Local Delete Message",
+    subLabel: "Hide message locally",
+    icon: React.createElement(ActionSheetRow.Icon, { source: getAssetId("TrashIcon") }),
+    onPress: () => {
+      hideSheet();
+      triggerLocalDelete(target);
+    }
+  });
+
+  const groups = findInReactTree(rendered, (c: any) => Array.isArray(c) && c.some((item: any) => item?.type === ActionSheetRow || item?.type?.name === 'ActionSheetRowGroup'));
+
+  if (Array.isArray(groups)) {
+    // Add Edit to the TOP group
+    groups.unshift(
+      React.createElement(ActionSheetRow.Group, { key: "local-edit-group" }, editRow)
+    );
+    // Add Delete to the LAST group (beside native delete/report)
+    groups.push(
+      React.createElement(ActionSheetRow.Group, { key: "local-delete-group" }, deleteRow)
+    );
+    return true;
   }
 
-  // 2. Last Section: Local Delete Message
-  const lastGroup = groups[groups.length - 1];
-  const bottomTpl = lastGroup?.find?.((r: any) => r?.props?.label != null) ?? lastGroup?.[0];
-
-  if (bottomTpl) {
-    const deleteRow = makeRow(bottomTpl, "Local Delete Message", "TrashIcon", () => {
-      const targetMsg = activeMessage;
-      hideSheet();
-      triggerLocalDelete(targetMsg);
-    });
-    if (deleteRow) lastGroup.push(deleteRow);
-  }
-
-  return res;
+  return false;
 }
 
 export default {
@@ -219,36 +304,34 @@ export default {
       );
     }
 
-    // Intercept openLazy using finders instead of string paths
+    // Intercept openLazy to grab the target message reference securely
     const ActionSheetCreators = rev?.discord?.actions?.ActionSheetActionCreators;
     if (ActionSheetCreators?.openLazy) {
       unpatch.push(
         rev.patcher?.before(ActionSheetCreators, "openLazy", (args: any) => {
-          const [, key, loc] = args ?? [];
-          activeMessage = key === "MessageLongPressActionSheet" ? loc?.message ?? null : null;
+          try {
+            const [sheet, key, props] = args;
+            if (key === "MessageLongPressActionSheet" && props?.message) {
+              const target = props.message;
+              args[0] = sheet.then((mod: any) => {
+                if (mod && typeof mod.default === "function") {
+                  const original = mod.default;
+                  mod.default = (p: any) => {
+                    const res = original(p);
+                    try {
+                      inject(res, target);
+                    } catch {}
+                    return res;
+                  };
+                }
+                return mod;
+              });
+            }
+          } catch {}
           return args;
         })
       );
     }
-
-    // Direct module injection into LongPressMessageActionSheet
-    try {
-      const finders = rev?.modules?.finders;
-      if (finders?.getModule) {
-        finders.getModule(
-          (m: any) => typeof m?.default === "function" && m?.default?.name === "LongPressMessageActionSheet",
-          (mod: any) => {
-            if (mod?.default) {
-              unpatch.push(
-                rev.patcher?.after(mod, "default", (_args: any, res: any) => {
-                  return activeMessage ? inject(res) : res;
-                })
-              );
-            }
-          }
-        );
-      }
-    } catch {}
 
     cleanup(() => {
       for (const u of unpatch) u?.();
