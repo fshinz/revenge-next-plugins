@@ -69,8 +69,8 @@ function makeRow(tpl: any, label: string, icon: any, onPress: () => void): any {
   const Row = tpl?.type;
   if (!Row) return null;
   const Icon = Row?.Icon;
-  const iconEl = Icon && icon ? React.createElement(Icon, { IconComponent: icon }) : null;
-  return React.createElement(Row, { key: label, label, icon: iconEl, onPress });
+  const iconEl = Icon && icon ? <Icon IconComponent={icon} /> : null;
+  return <Row key={label} label={label} icon={iconEl} onPress={onPress} />;
 }
 
 function dispatchLocalEdit(message: any, newContent: string) {
@@ -118,49 +118,44 @@ function LocalEditModalContent({
   const initialText = localEdits.get(message.id) ?? message.content ?? "";
   const [text, setText] = React.useState(initialText);
 
-  return React.createElement(
-    View,
-    { style: { width: "100%", marginTop: 8 } },
-    React.createElement(
-      View,
-      {
-        style: {
+  return (
+    <View style={{ width: "100%", marginTop: 8 }}>
+      <View
+        style={{
           backgroundColor: "rgba(0,0,0,0.15)",
           padding: 12,
           borderRadius: 8,
           marginBottom: 12,
           borderLeftWidth: 3,
           borderLeftColor: "#5865F2",
-        },
-      },
-      React.createElement(
-        Text,
-        { variant: "text-xs/semibold", color: "text-muted", style: { marginBottom: 4 } },
-        "ORIGINAL MESSAGE PREVIEW:"
-      ),
-      React.createElement(
-        Text,
-        { variant: "text-sm/normal", color: "text-default" },
-        message.content || "(empty)"
-      )
-    ),
-    React.createElement(TextInput, {
-      placeholder: "Write new message content...",
-      value: text,
-      multiline: true,
-      autoFocus: true,
-      onChangeText: (val: string) => {
-        setText(val);
-        onTextChange(val);
-      },
-      style: {
-        minHeight: 80,
-        textAlignVertical: "top",
-        padding: 8,
-        borderRadius: 8,
-        backgroundColor: "rgba(0,0,0,0.1)",
-      },
-    })
+        }}
+      >
+        <Text variant="text-xs/semibold" color="text-muted" style={{ marginBottom: 4 }}>
+          ORIGINAL MESSAGE PREVIEW:
+        </Text>
+        <Text variant="text-sm/normal" color="text-default">
+          {message.content || "(empty)"}
+        </Text>
+      </View>
+
+      <TextInput
+        placeholder="Write new message content..."
+        value={text}
+        multiline={true}
+        autoFocus={true}
+        onChangeText={(val: string) => {
+          setText(val);
+          onTextChange(val);
+        }}
+        style={{
+          minHeight: 80,
+          textAlignVertical: "top",
+          padding: 8,
+          borderRadius: 8,
+          backgroundColor: "rgba(0,0,0,0.1)",
+        }}
+      />
+    </View>
   );
 }
 
@@ -169,7 +164,6 @@ function openEditAlert(message: any) {
   const alertKey = "LocalEditAlertModal";
   const React = (revenge as any).react.React;
 
-  // Resolve Alert Creators & Modal Components from Revenge internal modules
   const finders = (revenge as any).modules?.finders;
   const Alerts =
     (revenge as any).discord.actions?.AlertActionCreators ||
@@ -187,34 +181,36 @@ function openEditAlert(message: any) {
   if (Alerts?.openAlert && AlertModal && AlertActionButton) {
     Alerts.openAlert(
       alertKey,
-      React.createElement(AlertModal, {
-        title: "Local Edit Message",
-        content: React.createElement(LocalEditModalContent, {
-          message,
-          onTextChange: (val: string) => {
-            pendingText = val;
-          },
-        }),
-        actions: React.createElement(
-          React.Fragment,
-          null,
-          React.createElement(AlertActionButton, {
-            text: "Save",
-            variant: "primary",
-            onPress: () => {
-              if (Alerts.dismissAlert) Alerts.dismissAlert(alertKey);
-              dispatchLocalEdit(message, pendingText);
-            },
-          }),
-          React.createElement(AlertActionButton, {
-            text: "Cancel",
-            variant: "secondary",
-            onPress: () => {
-              if (Alerts.dismissAlert) Alerts.dismissAlert(alertKey);
-            },
-          })
-        ),
-      })
+      <AlertModal
+        title="Local Edit Message"
+        content={
+          <LocalEditModalContent
+            message={message}
+            onTextChange={(val: string) => {
+              pendingText = val;
+            }}
+          />
+        }
+        actions={
+          <React.Fragment>
+            <AlertActionButton
+              text="Save"
+              variant="primary"
+              onPress={() => {
+                if (Alerts.dismissAlert) Alerts.dismissAlert(alertKey);
+                dispatchLocalEdit(message, pendingText);
+              }}
+            />
+            <AlertActionButton
+              text="Cancel"
+              variant="secondary"
+              onPress={() => {
+                if (Alerts.dismissAlert) Alerts.dismissAlert(alertKey);
+              }}
+            />
+          </React.Fragment>
+        }
+      />
     );
   } else {
     const res = prompt("Edit Message Locally:", pendingText);
@@ -234,14 +230,12 @@ function triggerLocalDelete(message: any) {
 
   const Dispatcher = (revenge as any).discord.stores?.Dispatcher;
   if (Dispatcher) {
-    // 1. Dispatch MESSAGE_DELETE to remove from active UI view
     Dispatcher.dispatch({
       type: "MESSAGE_DELETE",
       id: msgId,
       channel_id: channelId,
     });
 
-    // 2. Dispatch success state to flush message cache
     Dispatcher.dispatch({
       type: "MESSAGE_DELETE_SUCCESS",
       id: msgId,
@@ -328,7 +322,7 @@ export default {
     deleteIconGetter = makeIconGetter("TrashIcon");
     const unpatch: Array<() => void> = [];
 
-    // Memory Store Hooks
+    // Message Store Memory Hooks
     const MessageStore = (revenge as any).discord.stores?.MessageStore;
     if (MessageStore) {
       unpatch.push(
