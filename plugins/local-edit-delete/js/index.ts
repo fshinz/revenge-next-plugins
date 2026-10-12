@@ -85,8 +85,9 @@ function dispatchLocalEdit(message: any, newContent: string) {
 
   localEdits.set(message.id, content);
 
-  try {
-    (revenge as any).discord.stores?.Dispatcher?.dispatch({
+  const Dispatcher = (revenge as any).discord.stores?.Dispatcher;
+  if (Dispatcher) {
+    Dispatcher.dispatch({
       type: "MESSAGE_UPDATE",
       message: {
         ...message,
@@ -94,7 +95,7 @@ function dispatchLocalEdit(message: any, newContent: string) {
         edited_timestamp: new Date().toISOString(),
       },
     });
-  } catch {}
+  }
 
   showToast("Locally edited!");
 }
@@ -167,13 +168,26 @@ function openEditAlert(message: any) {
   let pendingText = localEdits.get(message.id) ?? message.content ?? "";
   const alertKey = "LocalEditAlertModal";
   const React = (revenge as any).react.React;
-  const Alerts = (revenge as any).discord.actions?.AlertActionCreators || (revenge as any).discord.actions?.Alerts;
-  const Design = (revenge as any).discord.design || {};
 
-  if (Alerts?.openAlert && Design.AlertModal && Design.AlertActionButton) {
+  // Resolve Alert Creators & Modal Components from Revenge internal modules
+  const finders = (revenge as any).modules?.finders;
+  const Alerts =
+    (revenge as any).discord.actions?.AlertActionCreators ||
+    (revenge as any).discord.actions?.Alerts ||
+    finders?.lookupModule?.(finders?.filters?.withProps("openAlert"))?.[0];
+
+  const Design =
+    (revenge as any).discord.design ||
+    finders?.lookupModule?.(finders?.filters?.withProps("AlertModal"))?.[0] ||
+    {};
+
+  const AlertModal = Design.AlertModal;
+  const AlertActionButton = Design.AlertActionButton;
+
+  if (Alerts?.openAlert && AlertModal && AlertActionButton) {
     Alerts.openAlert(
       alertKey,
-      React.createElement(Design.AlertModal, {
+      React.createElement(AlertModal, {
         title: "Local Edit Message",
         content: React.createElement(LocalEditModalContent, {
           message,
@@ -184,18 +198,20 @@ function openEditAlert(message: any) {
         actions: React.createElement(
           React.Fragment,
           null,
-          React.createElement(Design.AlertActionButton, {
+          React.createElement(AlertActionButton, {
             text: "Save",
             variant: "primary",
             onPress: () => {
-              Alerts.dismissAlert(alertKey);
+              if (Alerts.dismissAlert) Alerts.dismissAlert(alertKey);
               dispatchLocalEdit(message, pendingText);
             },
           }),
-          React.createElement(Design.AlertActionButton, {
+          React.createElement(AlertActionButton, {
             text: "Cancel",
             variant: "secondary",
-            onPress: () => Alerts.dismissAlert(alertKey),
+            onPress: () => {
+              if (Alerts.dismissAlert) Alerts.dismissAlert(alertKey);
+            },
           })
         ),
       })
@@ -211,15 +227,27 @@ function openEditAlert(message: any) {
 function triggerLocalDelete(message: any) {
   if (!message || !message.id || !message.channel_id) return;
 
-  localDeletes.add(message.id);
+  const msgId = message.id;
+  const channelId = message.channel_id;
 
-  try {
-    (revenge as any).discord.stores?.Dispatcher?.dispatch({
+  localDeletes.add(msgId);
+
+  const Dispatcher = (revenge as any).discord.stores?.Dispatcher;
+  if (Dispatcher) {
+    // 1. Dispatch MESSAGE_DELETE to remove from active UI view
+    Dispatcher.dispatch({
       type: "MESSAGE_DELETE",
-      id: message.id,
-      channel_id: message.channel_id,
+      id: msgId,
+      channel_id: channelId,
     });
-  } catch {}
+
+    // 2. Dispatch success state to flush message cache
+    Dispatcher.dispatch({
+      type: "MESSAGE_DELETE_SUCCESS",
+      id: msgId,
+      channelId: channelId,
+    });
+  }
 
   showToast("Locally deleted!");
 }
@@ -240,7 +268,7 @@ function inject(res: any): any {
       hideSheet();
       setTimeout(() => {
         openEditAlert(targetMsg);
-      }, 100);
+      }, 150);
     });
     if (editRow) topGroup.unshift(editRow);
   }
@@ -255,7 +283,7 @@ function inject(res: any): any {
       hideSheet();
       setTimeout(() => {
         triggerLocalDelete(targetMsg);
-      }, 100);
+      }, 150);
     });
     if (deleteRow) lastGroup.push(deleteRow);
   }
@@ -300,7 +328,7 @@ export default {
     deleteIconGetter = makeIconGetter("TrashIcon");
     const unpatch: Array<() => void> = [];
 
-    // Message Store Memory Hooks
+    // Memory Store Hooks
     const MessageStore = (revenge as any).discord.stores?.MessageStore;
     if (MessageStore) {
       unpatch.push(
@@ -332,7 +360,7 @@ export default {
       );
     }
 
-    // Intercept Target Message
+    // Intercept target message on openLazy
     unpatch.push(
       onImportedPath(
         "modules/action_sheet/native/ActionSheetActionCreators.tsx",
@@ -350,7 +378,7 @@ export default {
       )
     );
 
-    // Inject Long Press Action Sheet Rows
+    // Inject Action Sheet Rows
     unpatch.push(
       onImportedPath(
         "modules/messages/native/long_press/LongPressMessageActionSheet.tsx",
