@@ -1,394 +1,291 @@
-let msg: any = null;
-let editIconGetter: () => any = () => null;
-let deleteIconGetter: () => any = () => null;
+let msg: any = null
+let ch: any = null
 
-const localEdits = new Map<string, string>();
-const localDeletes = new Set<string>();
+const localEdits = new Map<string, string>()
+const localDeletes = new Set<string>()
+
+let channelMessagesCache: any = null
+let messageStoreRef: any = null
+let messageActionCreatorsRef: any = null
+
+function isSentMessage(m: any): boolean {
+	return m?.state === 'SENT'
+}
+
+const USER_MESSAGE_TYPES = new Set([0, 19, 20, 23, 26, 41, 45, 47, 68])
 
 function hideSheet() {
-  try {
-    (revenge as any).discord.actions?.ActionSheetActionCreators?.hideActionSheet?.();
-  } catch {}
+	try {
+		revenge.discord.actions?.ActionSheetActionCreators?.hideActionSheet?.()
+	} catch {}
 }
 
 function showToast(content: string) {
-  try {
-    (revenge as any).discord.actions?.ToastActionCreators?.showToast?.({ content });
-  } catch {}
+	try {
+		revenge.discord.actions?.ToastActionCreators?.showToast?.({ content })
+	} catch {}
+}
+
+function removeMessage(channelId: string, messageId: string): boolean {
+	try {
+		if (!channelMessagesCache) return false
+		const collection = channelMessagesCache.getOrCreate(channelId)
+		if (!collection?.has(messageId)) return false
+		const removed = collection.remove(messageId)
+		channelMessagesCache.commit(removed)
+		queueMicrotask(() => {
+			try {
+				messageStoreRef?.emitChange?.()
+			} catch {}
+		})
+		return true
+	} catch {
+		return false
+	}
+}
+
+function hideForMe() {
+	if (!msg) return
+	const channelId = ch?.id ?? msg?.channel_id ?? ''
+	localDeletes.add(msg.id)
+	removeMessage(channelId, msg.id)
+	showToast('Locally deleted!')
+}
+
+function startLocalEdit(channelId: string, message: any) {
+	if (typeof channelId !== 'string' || !message?.id) return
+	const content =
+		messageStoreRef?.getMessage?.(channelId, message.id)?.content ?? message.content
+	try {
+		messageActionCreatorsRef?.startEditMessage?.(
+			channelId,
+			message.id,
+			content,
+			'action_sheet',
+		)
+	} catch {}
 }
 
 function isRowArray(arr: any[]): boolean {
-  if (!Array.isArray(arr) || arr.length === 0) return false;
-  const first = arr[0];
-  return (
-    first?.type?.name === "ActionSheetRow" ||
-    (first?.props && typeof first.props.label === "string")
-  );
+	if (arr.length === 0) return false
+	const first = arr[0]
+	return (
+		first?.type?.name === 'ActionSheetRow' ||
+		(first?.props && typeof first.props.label === 'string')
+	)
 }
 
 function walkRows(tree: any, out: any[] = []): any[] {
-  if (!tree || typeof tree !== "object") return out;
-  if (Array.isArray(tree)) {
-    if (isRowArray(tree) && !out.includes(tree)) out.push(tree);
-    tree.forEach((c: any) => walkRows(c, out));
-    return out;
-  }
-  const k = tree?.props?.children;
-  if (Array.isArray(k)) {
-    if (isRowArray(k) && !out.includes(k)) out.push(k);
-    k.forEach((c: any) => walkRows(c, out));
-  } else {
-    walkRows(k, out);
-  }
-  return out;
-}
-
-function makeIconGetter(name: string): () => any {
-  const wg = (revenge as any).utils?.discord?.withGeneratedIconComponent;
-  const filter = wg ? wg(name) : (revenge as any).modules.finders.filters.withProps(name);
-  let cached: any = null;
-  let unsub: (() => void) | undefined;
-  try {
-    unsub = (revenge as any).modules.finders.getModules(
-      filter,
-      (exports: any) => {
-        const val = exports?.[name] ?? exports?.default ?? exports;
-        if (val) {
-          cached = val;
-          unsub?.();
-        }
-      },
-      { returnNamespace: true }
-    );
-  } catch {}
-  return () => cached;
+	if (!tree || typeof tree !== 'object') return out
+	if (Array.isArray(tree)) {
+		if (isRowArray(tree) && !out.includes(tree)) out.push(tree)
+		tree.forEach((c: any) => walkRows(c, out))
+		return out
+	}
+	const k = tree?.props?.children
+	if (Array.isArray(k)) {
+		if (isRowArray(k) && !out.includes(k)) out.push(k)
+		k.forEach((c: any) => walkRows(c, out))
+	} else {
+		walkRows(k, out)
+	}
+	return out
 }
 
 function makeRow(tpl: any, label: string, icon: any, onPress: () => void): any {
-  const { React } = (revenge as any).react;
-  const Row = tpl?.type;
-  if (!Row) return null;
-  const Icon = Row?.Icon;
-  const iconEl = Icon && icon ? <Icon IconComponent={icon} /> : null;
-  return <Row key={label} label={label} icon={iconEl} onPress={onPress} />;
+	const { React } = revenge.react
+	const Row = tpl?.type
+	if (!Row) return null
+	const Icon = Row?.Icon
+	const iconEl = Icon
+		? React.createElement(Icon, { IconComponent: icon })
+		: null
+	return React.createElement(Row, { key: label, label, icon: iconEl, onPress })
 }
 
-function dispatchLocalEdit(message: any, newContent: string) {
-  if (!message || !message.id || !message.channel_id) return;
+const iconCache = new Map<string, any>()
 
-  let content = newContent;
-  if (content.endsWith("\u200b")) {
-    content = content.replace(/\u200b/g, "");
-  } else {
-    content += "\u200b";
-  }
-
-  localEdits.set(message.id, content);
-
-  const Dispatcher = (revenge as any).discord.stores?.Dispatcher;
-  if (Dispatcher) {
-    Dispatcher.dispatch({
-      type: "MESSAGE_UPDATE",
-      message: {
-        ...message,
-        content: content,
-        edited_timestamp: new Date().toISOString(),
-      },
-    });
-  }
-
-  showToast("Locally edited!");
-}
-
-function LocalEditModalContent({
-  message,
-  onTextChange,
-}: {
-  message: any;
-  onTextChange: (val: string) => void;
-}) {
-  const React = (revenge as any).react.React;
-  const ReactNative = (revenge as any).react.ReactNative;
-  const { View } = ReactNative;
-
-  const Design = (revenge as any).discord.design || {};
-  const TextInput = Design.TextInput || ReactNative.TextInput;
-  const Text = Design.Text || ReactNative.Text;
-
-  const initialText = localEdits.get(message.id) ?? message.content ?? "";
-  const [text, setText] = React.useState(initialText);
-
-  return (
-    <View style={{ width: "100%", marginTop: 8 }}>
-      <View
-        style={{
-          backgroundColor: "rgba(0,0,0,0.15)",
-          padding: 12,
-          borderRadius: 8,
-          marginBottom: 12,
-          borderLeftWidth: 3,
-          borderLeftColor: "#5865F2",
-        }}
-      >
-        <Text variant="text-xs/semibold" color="text-muted" style={{ marginBottom: 4 }}>
-          ORIGINAL MESSAGE PREVIEW:
-        </Text>
-        <Text variant="text-sm/normal" color="text-default">
-          {message.content || "(empty)"}
-        </Text>
-      </View>
-
-      <TextInput
-        placeholder="Write new message content..."
-        value={text}
-        multiline={true}
-        autoFocus={true}
-        onChangeText={(val: string) => {
-          setText(val);
-          onTextChange(val);
-        }}
-        style={{
-          minHeight: 80,
-          textAlignVertical: "top",
-          padding: 8,
-          borderRadius: 8,
-          backgroundColor: "rgba(0,0,0,0.1)",
-        }}
-      />
-    </View>
-  );
-}
-
-function openEditAlert(message: any) {
-  let pendingText = localEdits.get(message.id) ?? message.content ?? "";
-  const alertKey = "LocalEditAlertModal";
-  const React = (revenge as any).react.React;
-
-  const finders = (revenge as any).modules?.finders;
-  const Alerts =
-    (revenge as any).discord.actions?.AlertActionCreators ||
-    (revenge as any).discord.actions?.Alerts ||
-    finders?.lookupModule?.(finders?.filters?.withProps("openAlert"))?.[0];
-
-  const Design =
-    (revenge as any).discord.design ||
-    finders?.lookupModule?.(finders?.filters?.withProps("AlertModal"))?.[0] ||
-    {};
-
-  const AlertModal = Design.AlertModal;
-  const AlertActionButton = Design.AlertActionButton;
-
-  if (Alerts?.openAlert && AlertModal && AlertActionButton) {
-    Alerts.openAlert(
-      alertKey,
-      <AlertModal
-        title="Local Edit Message"
-        content={
-          <LocalEditModalContent
-            message={message}
-            onTextChange={(val: string) => {
-              pendingText = val;
-            }}
-          />
-        }
-        actions={
-          <React.Fragment>
-            <AlertActionButton
-              text="Save"
-              variant="primary"
-              onPress={() => {
-                if (Alerts.dismissAlert) Alerts.dismissAlert(alertKey);
-                dispatchLocalEdit(message, pendingText);
-              }}
-            />
-            <AlertActionButton
-              text="Cancel"
-              variant="secondary"
-              onPress={() => {
-                if (Alerts.dismissAlert) Alerts.dismissAlert(alertKey);
-              }}
-            />
-          </React.Fragment>
-        }
-      />
-    );
-  } else {
-    const res = prompt("Edit Message Locally:", pendingText);
-    if (res !== null) {
-      dispatchLocalEdit(message, res);
-    }
-  }
-}
-
-function triggerLocalDelete(message: any) {
-  if (!message || !message.id || !message.channel_id) return;
-
-  const msgId = message.id;
-  const channelId = message.channel_id;
-
-  localDeletes.add(msgId);
-
-  const Dispatcher = (revenge as any).discord.stores?.Dispatcher;
-  if (Dispatcher) {
-    Dispatcher.dispatch({
-      type: "MESSAGE_DELETE",
-      id: msgId,
-      channel_id: channelId,
-    });
-
-    Dispatcher.dispatch({
-      type: "MESSAGE_DELETE_SUCCESS",
-      id: msgId,
-      channelId: channelId,
-    });
-  }
-
-  showToast("Locally deleted!");
-}
-
-function inject(res: any): any {
-  if (!res || !msg?.id) return res;
-
-  const groups = walkRows(res);
-  if (groups.length === 0) return res;
-
-  // 1. Top Section: Local Edit Message
-  const topGroup = groups[0];
-  const topTpl = topGroup?.find?.((r: any) => r?.props?.label != null) ?? topGroup?.[0];
-
-  if (topTpl) {
-    const targetMsg = msg;
-    const editRow = makeRow(topTpl, "Local Edit Message", editIconGetter(), () => {
-      hideSheet();
-      setTimeout(() => {
-        openEditAlert(targetMsg);
-      }, 150);
-    });
-    if (editRow) topGroup.unshift(editRow);
-  }
-
-  // 2. Last Section: Local Delete Message
-  const lastGroup = groups[groups.length - 1];
-  const bottomTpl = lastGroup?.find?.((r: any) => r?.props?.label != null) ?? lastGroup?.[0];
-
-  if (bottomTpl) {
-    const targetMsg = msg;
-    const deleteRow = makeRow(bottomTpl, "Local Delete Message", deleteIconGetter(), () => {
-      hideSheet();
-      setTimeout(() => {
-        triggerLocalDelete(targetMsg);
-      }, 150);
-    });
-    if (deleteRow) lastGroup.push(deleteRow);
-  }
-
-  return res;
-}
-
-function installWrapper(ns: any) {
-  const mod = ns?.default ?? ns;
-  if (typeof mod !== "function") return () => {};
-  const orig = mod;
-  const wrapped = (props: any) => {
-    const res = orig(props);
-    try {
-      return msg ? inject(res) : res;
-    } catch {
-      return res;
-    }
-  };
-  ns.default = wrapped;
-  return () => {
-    if (ns.default === wrapped) ns.default = orig;
-  };
+function retryIcon(name: string): any {
+	let icon = iconCache.get(name)
+	if (!icon) {
+		const wg = (revenge as any).utils?.discord?.withGeneratedIconComponent
+		const filter = wg ? wg(name) : revenge.modules.finders.filters.withProps(name)
+		try {
+			revenge.modules.finders.getModules(
+				filter,
+				(exports: any) => {
+					const val = exports?.[name] ?? exports?.default ?? exports
+					if (val) {
+						icon = val
+						iconCache.set(name, val)
+					}
+				},
+				{ returnNamespace: true },
+			)
+		} catch {}
+	}
+	return icon
 }
 
 function onImportedPath(path: string, cb: (ns: any) => void): () => void {
-  try {
-    return (
-      (revenge as any).discord.utils.modules.finders.getModuleWithImportedPath(
-        path,
-        (ns: any) => cb(ns)
-      ) ?? (() => {})
-    );
-  } catch {
-    return () => {};
-  }
+	try {
+		return (
+			revenge.discord.utils.modules.finders.getModuleWithImportedPath(
+				path,
+				(ns: any) => cb(ns),
+			) ?? (() => {})
+		)
+	} catch {
+		return () => {}
+	}
+}
+
+function inject(res: any): any {
+	if (!res || !msg?.id || !isSentMessage(msg)) return res
+	const channelId = ch?.id ?? msg?.channel_id ?? ''
+	const groups = walkRows(res)
+	if (groups.length === 0) return res
+
+	let editArr: any[] | null = null
+	let hideArr: any[] | null = null
+	for (const arr of groups) {
+		if (
+			!editArr &&
+			arr.length > 0 &&
+			arr.some((r: any) => r?.props?.label != null)
+		)
+			editArr = arr
+		if (!hideArr && arr.some((r: any) => r?.props?.variant === 'danger'))
+			hideArr = arr
+		if (editArr && hideArr) break
+	}
+
+	// Local Edit Button (Top section)
+	if (
+		groups.length >= 2 &&
+		USER_MESSAGE_TYPES.has(msg?.type) &&
+		editArr
+	) {
+		const tpl = editArr.find((r: any) => r?.props?.label != null) ?? editArr[0]
+		if (tpl) {
+			editArr.unshift(
+				makeRow(tpl, 'Local Edit', retryIcon('PencilIcon'), () => {
+					hideSheet()
+					startLocalEdit(channelId, msg)
+				}),
+			)
+		}
+	}
+
+	// Local Delete Button (Bottom/Danger section)
+	if (hideArr ?? editArr) {
+		const arr = hideArr ?? editArr!
+		const tpl = arr.find((r: any) => r?.props?.label != null) ?? arr[0]
+		if (tpl) {
+			arr.unshift(
+				makeRow(tpl, 'Local Delete', retryIcon('TrashIcon'), () => {
+					hideSheet()
+					hideForMe()
+				}),
+			)
+		}
+	}
+
+	return res
+}
+
+function installWrapper(ns: any) {
+	const mod = ns?.default ?? ns
+	if (typeof mod !== 'function') return () => {}
+	const orig = mod
+	const wrapped = (props: any) => {
+		const res = orig(props)
+		try {
+			return msg ? inject(res) : res
+		} catch {
+			return res
+		}
+	}
+	ns.default = wrapped
+	return () => {
+		if (ns.default === wrapped) ns.default = orig
+	}
 }
 
 export default {
-  start({ cleanup }: { cleanup: (fn: () => void) => void }) {
-    editIconGetter = makeIconGetter("PencilSparkleIcon");
-    deleteIconGetter = makeIconGetter("TrashIcon");
-    const unpatch: Array<() => void> = [];
+	start({ cleanup }: { cleanup: (fn: () => void) => void }) {
+		const unpatch: Array<() => void> = []
 
-    // Message Store Memory Hooks
-    const MessageStore = (revenge as any).discord.stores?.MessageStore;
-    if (MessageStore) {
-      unpatch.push(
-        (revenge as any).patcher.after(MessageStore, "getMessage", (args: any, result: any) => {
-          if (!result) return result;
-          const msgId = args[1] || result.id;
+		unpatch.push(
+			onImportedPath('stores/MessageStore.tsx', (ns: any) => {
+				messageStoreRef = ns?.default ?? ns
+				if (messageStoreRef) {
+					unpatch.push(
+						revenge.patcher.after(messageStoreRef, 'getMessage', (args: any, result: any) => {
+							if (!result) return result;
+							const msgId = args[1] || result.id;
+							if (localDeletes.has(msgId)) return null;
+							return result;
+						})
+					)
+				}
+			}),
+		)
 
-          if (localDeletes.has(msgId)) return null;
+		unpatch.push(
+			onImportedPath('lib/ChannelMessages.tsx', (ns: any) => {
+				channelMessagesCache = ns?.default ?? ns
+			}),
+		)
 
-          if (localEdits.has(msgId)) {
-            return {
-              ...result,
-              content: localEdits.get(msgId),
-            };
-          }
+		unpatch.push(
+			onImportedPath('actions/MessageActionCreators.tsx', (ns: any) => {
+				messageActionCreatorsRef = ns?.default ?? ns
+			}),
+		)
 
-          return result;
-        })
-      );
+		unpatch.push(
+			onImportedPath(
+				'modules/action_sheet/native/ActionSheetActionCreators.tsx',
+				(ns: any) => {
+					const owner = ns?.default ?? ns
+					if (typeof owner?.openLazy !== 'function') return
+					unpatch.push(
+						revenge.patcher.before(owner, 'openLazy', (args: any) => {
+							const [, key, loc] = args ?? []
+							const m =
+								key === 'MessageLongPressActionSheet' ? loc?.message : null
+							if (m != null && isSentMessage(m)) {
+								msg = m
+								ch = loc.channel ?? null
+							} else {
+								msg = null
+								ch = null
+							}
+							return args
+						}),
+					)
+				},
+			),
+		)
 
-      unpatch.push(
-        (revenge as any).patcher.after(MessageStore, "getMessages", (_args: any, result: any) => {
-          if (!result) return result;
-          if (Array.isArray(result._array)) {
-            result._array = result._array.filter((m: any) => !localDeletes.has(m?.id));
-          }
-          return result;
-        })
-      );
-    }
+		unpatch.push(
+			onImportedPath(
+				'modules/messages/native/long_press/LongPressMessageActionSheet.tsx',
+				(ns: any) => {
+					unpatch.push(installWrapper(ns))
+				},
+			),
+		)
 
-    // Intercept target message on openLazy
-    unpatch.push(
-      onImportedPath(
-        "modules/action_sheet/native/ActionSheetActionCreators.tsx",
-        (ns: any) => {
-          const owner = ns?.default ?? ns;
-          if (typeof owner?.openLazy !== "function") return;
-          unpatch.push(
-            (revenge as any).patcher.before(owner, "openLazy", (args: any) => {
-              const [, key, loc] = args ?? [];
-              msg = key === "MessageLongPressActionSheet" ? loc?.message ?? null : null;
-              return args;
-            })
-          );
-        }
-      )
-    );
-
-    // Inject Action Sheet Rows
-    unpatch.push(
-      onImportedPath(
-        "modules/messages/native/long_press/LongPressMessageActionSheet.tsx",
-        (ns: any) => {
-          unpatch.push(installWrapper(ns));
-        }
-      )
-    );
-
-    cleanup(() => {
-      for (const u of unpatch) u?.();
-      msg = null;
-      localEdits.clear();
-      localDeletes.clear();
-      editIconGetter = () => null;
-      deleteIconGetter = () => null;
-    });
-  },
-};
+		cleanup(() => {
+			for (const u of unpatch) u?.()
+			msg = null
+			ch = null
+			localDeletes.clear()
+			channelMessagesCache = null
+			messageStoreRef = null
+			messageActionCreatorsRef = null
+		})
+	},
+}
