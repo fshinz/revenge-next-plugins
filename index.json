@@ -8,7 +8,7 @@
       "description": "bomb to nuke ur app",
       "author": "fshinz",
       "channels": {
-        "latest": "1.1.2"
+        "latest": "1.1.3"
       },
       "versions": {
         "1.0.0": {
@@ -171,6 +171,19 @@
           "url": "https://fshinz.github.io/revenge-next-plugins/pool/com.fshinz.localeditdelete@1.1.2.zip",
           "sha256": "57862e07494f30ae8b08f3fa01bef6260dfd594653a55786798ca9e2b9b6acec",
           "size": 2277,
+          "dependencies": {
+            "revenge.api": {
+              "version": ">=1 <2"
+            },
+            "discord": {
+              "version": "*"
+            }
+          }
+        },
+        "1.1.3": {
+          "url": "https://fshinz.github.io/revenge-next-plugins/pool/com.fshinz.localeditdelete@1.1.3.zip",
+          "sha256": "561ba4037ef7231c512d1e511e86435dbb2f3bf6fdf1626c10d62fa2bf6f4e87",
+          "size": 2336,
           "dependencies": {
             "revenge.api": {
               "version": ">=1 <2"
