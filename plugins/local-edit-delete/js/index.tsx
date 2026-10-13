@@ -57,7 +57,6 @@ function hideForMe() {
 function startLocalEdit(channelId: string, message: any) {
   if (typeof channelId !== "string" || !message?.id) return;
 
-  // Track the specific target message for local edit
   pendingLocalEdit = { channelId, messageId: message.id };
 
   const content =
@@ -164,7 +163,7 @@ function inject(res: any): any {
     if (editArr && hideArr) break;
   }
 
-  // Local Edit Button
+  // Local Edit Row
   if (groups.length >= 2 && USER_MESSAGE_TYPES.has(msg?.type) && editArr) {
     const tpl = editArr.find((r: any) => r?.props?.label != null) ?? editArr[0];
     if (tpl) {
@@ -177,7 +176,7 @@ function inject(res: any): any {
     }
   }
 
-  // Local Delete Button
+  // Local Delete Row
   if (hideArr ?? editArr) {
     const arr = hideArr ?? editArr!;
     const tpl = arr.find((r: any) => r?.props?.label != null) ?? arr[0];
@@ -216,7 +215,7 @@ export default {
   start({ cleanup }: { cleanup: (fn: () => void) => void }) {
     const unpatch: Array<() => void> = [];
 
-    // 1. Clear pending local edit flag if user cancels edit session
+    // 1. Reset pending edit tracker on edit cancellation
     const Dispatcher = revenge.discord.stores?.Dispatcher;
     const onEndEdit = (payload: any) => {
       if (pendingLocalEdit && payload?.channelId === pendingLocalEdit.channelId) {
@@ -235,7 +234,7 @@ export default {
       } catch {}
     }
 
-    // 2. MessageStore Patching for Local Edits & Deletes
+    // 2. Override getMessage in MessageStore for active session
     unpatch.push(
       onImportedPath("stores/MessageStore.tsx", (ns: any) => {
         messageStoreRef = ns?.default ?? ns;
@@ -265,14 +264,14 @@ export default {
       })
     );
 
-    // 3. Channel Messages Cache Reference
+    // 3. Store reference to ChannelMessages cache
     unpatch.push(
       onImportedPath("lib/ChannelMessages.tsx", (ns: any) => {
         channelMessagesCache = ns?.default ?? ns;
       })
     );
 
-    // 4. Intercept Composer Edit Submissions
+    // 4. Intercept composer edit submission
     unpatch.push(
       onImportedPath("actions/MessageActionCreators.tsx", (ns: any) => {
         messageActionCreatorsRef = ns?.default ?? ns;
@@ -286,7 +285,6 @@ export default {
                 const messageId = args[1];
                 const parsed = args[2];
 
-                // STRICT CHECK: Only intercept if this specific channel AND message ID was flagged for a local edit
                 const isTargetLocalEdit =
                   pendingLocalEdit != null &&
                   pendingLocalEdit.channelId === channelId &&
@@ -349,10 +347,9 @@ export default {
                   } catch {}
 
                   showToast("Locally edited!");
-                  return Promise.resolve(); // Cancel remote API request for local edits only
+                  return Promise.resolve();
                 }
 
-                // Normal message edits fall through to Discord's default behavior completely untouched!
                 return original(...args);
               }
             )
@@ -361,7 +358,7 @@ export default {
       })
     );
 
-    // 5. Action Sheet Target Message Capture
+    // 5. Intercept long press openLazy
     unpatch.push(
       onImportedPath(
         "modules/action_sheet/native/ActionSheetActionCreators.tsx",
@@ -387,7 +384,7 @@ export default {
       )
     );
 
-    // 6. Inject Context Menu Items
+    // 6. Inject Action Sheet Options
     unpatch.push(
       onImportedPath(
         "modules/messages/native/long_press/LongPressMessageActionSheet.tsx",
