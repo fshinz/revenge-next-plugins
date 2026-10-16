@@ -5,7 +5,7 @@
 	"description": "bomb to nuke ur app",
 	"author": "fshinz",
 	"contributors": ["k1ng_op <641266820187160576>"],
-	"version": "1.1.4",
+	"version": "1.1.5",
 	"dependencies": {
 		"revenge.api": {
 			"version": ">=1 <2"
