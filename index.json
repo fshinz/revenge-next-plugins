@@ -254,7 +254,7 @@
       "author": "shin <1381008677301129257>",
       "icon": "LockIcon",
       "channels": {
-        "latest": "1.0.1"
+        "latest": "1.0.2"
       },
       "versions": {
         "1.0.0": {
@@ -273,6 +273,19 @@
         "1.0.1": {
           "url": "https://fshinz.github.io/revenge-next-plugins/pool/dev.fshin.hidden-channels@1.0.1.zip",
           "sha256": "64b8cfb9d0edceb8e692ed6b6e661d0f5ca336fddc468bf0846823a09c0a84a8",
+          "size": 2287,
+          "dependencies": {
+            "revenge.api": {
+              "version": ">=1 <2"
+            },
+            "discord": {
+              "version": "*"
+            }
+          }
+        },
+        "1.0.2": {
+          "url": "https://fshinz.github.io/revenge-next-plugins/pool/dev.fshin.hidden-channels@1.0.2.zip",
+          "sha256": "282e448084dea7dce42e6e16dacbae00c0cbea236072c9d5db673a639b6f7251",
           "size": 2287,
           "dependencies": {
             "revenge.api": {
