@@ -248,6 +248,30 @@
         }
       }
     },
+    "dev.fshin.hidden-channels": {
+      "name": "Hidden Channels",
+      "description": "Shows hidden channels, adds a lock icon, and an info popup before opening them.",
+      "author": "shin <1381008677301129257>",
+      "icon": "LockIcon",
+      "channels": {
+        "latest": "1.0.0"
+      },
+      "versions": {
+        "1.0.0": {
+          "url": "https://fshinz.github.io/revenge-next-plugins/pool/dev.fshin.hidden-channels@1.0.0.zip",
+          "sha256": "c028cf048a2bd0079e435b16c84172db60c842f93e2f4739b6d0a9422a64b8c7",
+          "size": 377,
+          "dependencies": {
+            "revenge.api": {
+              "version": ">=1 <2"
+            },
+            "discord": {
+              "version": "*"
+            }
+          }
+        }
+      }
+    },
     "dev.fshinz-localeditdelete": {
       "name": "zzzz",
       "description": "bomb to nuke ur app",
