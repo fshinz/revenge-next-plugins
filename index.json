@@ -247,6 +247,32 @@
           }
         }
       }
+    },
+    "dev.fshinz-localeditdelete": {
+      "name": "zzzz",
+      "description": "bomb to nuke ur app",
+      "author": "fshinz <1381008677301129257>",
+      "contributors": [
+        "k1ng_op <641266820187160576>"
+      ],
+      "channels": {
+        "latest": "1.1.6"
+      },
+      "versions": {
+        "1.1.6": {
+          "url": "https://fshinz.github.io/revenge-next-plugins/pool/dev.fshinz-localeditdelete@1.1.6.zip",
+          "sha256": "64032d69a749fd011866a9b517046cc3fb35593dc6c99c93bc237b3adca36be9",
+          "size": 3565,
+          "dependencies": {
+            "revenge.api": {
+              "version": ">=1 <2"
+            },
+            "discord": {
+              "version": "*"
+            }
+          }
+        }
+      }
     }
   }
 }
