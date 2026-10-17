@@ -1,0 +1,20 @@
+{
+	"format": 1,
+	"id": "copy.command-mention",
+	"name": "Copy Command Mention",
+	"description": "Adds \"Copy Command Mention\" and \"Copy Command ID\" to the executed command popout.",
+	"author": "fshin",
+	"icon": "CopyIcon",
+	"version": "1.0.0",
+	"dependencies": {
+		"revenge.api": {
+			"version": ">=1 <2"
+		},
+		"discord": {
+			"version": "*"
+		}
+	},
+	"dist": {
+		"script": "index.js"
+	}
+}
