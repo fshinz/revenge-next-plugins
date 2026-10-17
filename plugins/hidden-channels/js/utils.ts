@@ -1,73 +1,169 @@
-import { Stores } from '@revenge-mod/discord/flux'
+import { AlertActionCreators } from '@revenge-mod/discord/actions'
+import { Design } from '@revenge-mod/discord/design'
+import { getModules } from '@revenge-mod/modules/finders'
+import { withName, withProps } from '@revenge-mod/modules/finders/filters'
+import { after, instead } from '@revenge-mod/patcher'
+import { lookupGeneratedIconComponent } from '@revenge-mod/utils/discord'
+import { Fragment } from 'react'
+import AlertContent from './AlertContent'
+import SettingsPage from './Settings'
+import {
+	DEFAULT_SETTINGS,
+	getChannel,
+	isHidden,
+	isViewChannel,
+	type Settings,
+	state,
+	toArray,
+} from './utils'
 
-export interface Settings {
-	showIcon: boolean
-	showPopup: boolean
+// Only these navigation functions are patched ('forward' is the one Discord actually uses).
+const ROUTER_KEYS = ['transitionToGuild', 'forward']
+
+function confirmOpen(channel: any, proceed: () => void) {
+	const { AlertModal, AlertActionButton } = Design
+
+	AlertActionCreators.openAlert(
+		'hidden-channels-alert',
+		<AlertModal
+			title="This channel is hidden."
+			content={<AlertContent channel={channel} />}
+			actions={
+				<>
+					<AlertActionButton text="View Anyway" onPress={proceed} />
+					<AlertActionButton text="Cancel" variant="secondary" />
+				</>
+			}
+		/>,
+	)
 }
 
-export const DEFAULT_SETTINGS: Settings = {
-	showIcon: true,
-	showPopup: true,
-}
+export default plugin<{ jsonStorage: Settings }>({
+	jsonStorage: {
+		load: true,
+		default: DEFAULT_SETTINGS,
+	},
 
-// Discord channel types: DM, GROUP_DM, GUILD_CATEGORY
-const SKIP_TYPES = [1, 3, 4]
+	SettingsComponent: SettingsPage,
 
-// VIEW_CHANNEL permission bit (1 << 10). Discord uses BigInt in newer builds.
-const VIEW_CHANNEL_BIGINT = 1n << 10n
-const VIEW_CHANNEL_NUMBER = 1 << 10
+	start({ cleanup, jsonStorage, logger }) {
+		const settings = () => ({ ...DEFAULT_SETTINGS, ...jsonStorage.cache })
 
-export function isViewChannel(permId: unknown) {
-	return permId === VIEW_CHANNEL_BIGINT || permId === VIEW_CHANNEL_NUMBER
-}
-
-// Set by index.tsx once the permissions module is found.
-export const state: { Permissions?: { can(...args: any[]): boolean } } = {}
-
-export function getChannel(id: string) {
-	return (Stores as any).ChannelStore?.getChannel?.(id)
-}
-
-export function isHidden(channel: any): boolean {
-	if (!channel || !state.Permissions) return false
-	if (typeof channel === 'string') channel = getChannel(channel)
-	if (!channel || SKIP_TYPES.includes(channel.type)) return false
-
-	// Tells our own `can` patch to return the real answer.
-	channel.realCheck = true
-	try {
-		const viewable = state.Permissions.can(VIEW_CHANNEL_BIGINT, channel)
-		return !viewable
-	} finally {
-		delete channel.realCheck
-	}
-}
-
-const DISCORD_EPOCH = 1420070400000n
-
-export function snowflakeToDate(id: string) {
-	return new Date(Number((BigInt(id) >> 22n) + DISCORD_EPOCH))
-}
-
-const UNITS: [string, number][] = [
-	['year', 31536000000],
-	['month', 2592000000],
-	['day', 86400000],
-	['hour', 3600000],
-	['minute', 60000],
-]
-
-export function fromNow(date: Date) {
-	const diff = Date.now() - date.getTime()
-	const abs = Math.abs(diff)
-
-	for (const [name, ms] of UNITS) {
-		if (abs >= ms) {
-			const n = Math.floor(abs / ms)
-			const text = `${n} ${name}${n > 1 ? 's' : ''}`
-			return diff < 0 ? `in ${text}` : `${text} ago`
+		// Log each kind of problem only once, so a hot code path can't flood the logs.
+		const reported = new Set<string>()
+		const reportOnce = (where: string, e: unknown) => {
+			if (reported.has(where)) return
+			reported.add(where)
+			logger.error(`[${where}] ${String(e)}`)
 		}
-	}
 
-	return 'just now'
-}
+		cleanup(() => {
+			state.Permissions = undefined
+		})
+
+		// 1. Make Discord think we can view every channel (unless we ask for the real answer).
+		cleanup(
+			getModules(
+				withProps<{ can: (...a: any[]) => boolean }>(
+					'getChannelPermissions',
+					'can',
+				),
+				Permissions => {
+					state.Permissions = Permissions
+
+					cleanup(
+						after(Permissions, 'can', (rawArgs: any, ret: any) => {
+							try {
+								if (!Array.isArray(rawArgs))
+									reportOnce(
+										'can-args-shape',
+										Object.prototype.toString.call(rawArgs),
+									)
+
+								const args = toArray(rawArgs)
+								const channel = args[1]
+
+								if (!channel?.realCheck && isViewChannel(args[0])) return true
+							} catch (e) {
+								reportOnce('can', e)
+							}
+
+							return ret
+						}),
+					)
+				},
+			),
+		)
+
+		// 2. Show the info popup when navigating to a hidden channel.
+		cleanup(
+			getModules(withProps<Record<string, any>>('transitionToGuild'), Router => {
+				for (const key of ROUTER_KEYS) {
+					if (typeof Router[key] !== 'function') continue
+
+					cleanup(
+						instead(Router, key, (rawArgs: any, original: any) => {
+							const args = toArray(rawArgs)
+
+							try {
+								if (typeof args[0] === 'string') {
+									const channelId = args[0].match(/(\d+)$/)?.[1]
+									const channel = channelId && getChannel(channelId)
+
+									if (channel && isHidden(channel) && settings().showPopup) {
+										confirmOpen(channel, () => original(...args))
+										return {}
+									}
+								}
+							} catch (e) {
+								reportOnce(`router-${key}`, e)
+							}
+
+							return original(...args)
+						}),
+					)
+				}
+			}),
+		)
+
+		// 3. Lock icon next to hidden channel names.
+		cleanup(
+			getModules(
+				withName<{ default: (props: any) => any }>('ChannelInfo'),
+				ChannelInfo => {
+					if (typeof ChannelInfo?.default !== 'function') {
+						logger.warn('ChannelInfo has no default export to patch')
+						return
+					}
+
+					const LockIcon = lookupGeneratedIconComponent(
+						'LockIcon',
+						'LockIcon-secondary',
+						'LockIcon-primary',
+					)
+
+					cleanup(
+						after(ChannelInfo, 'default', (rawArgs: any, ret: any) => {
+							try {
+								const channel = toArray(rawArgs)[0]?.channel
+								if (!settings().showIcon || !channel || !isHidden(channel))
+									return ret
+
+								return (
+									<Fragment>
+										{LockIcon ? <LockIcon size="sm" /> : null}
+										{ret}
+									</Fragment>
+								)
+							} catch (e) {
+								reportOnce('channel-info', e)
+								return ret
+							}
+						}),
+					)
+				},
+				{ returnNamespace: true },
+			),
+		)
+	},
+})
