@@ -223,6 +223,30 @@
           }
         }
       }
+    },
+    "copy.command-mention": {
+      "name": "Copy Command Mention",
+      "description": "Adds \"Copy Command Mention\" and \"Copy Command ID\" to the executed command popout.",
+      "author": "fshin",
+      "icon": "CopyIcon",
+      "channels": {
+        "latest": "1.0.0"
+      },
+      "versions": {
+        "1.0.0": {
+          "url": "https://fshinz.github.io/revenge-next-plugins/pool/copy.command-mention@1.0.0.zip",
+          "sha256": "87192fa1dbd5d1039178b07f9892ff90357971968aaadbd3d4e3e10198f896f5",
+          "size": 341,
+          "dependencies": {
+            "revenge.api": {
+              "version": ">=1 <2"
+            },
+            "discord": {
+              "version": "*"
+            }
+          }
+        }
+      }
     }
   }
 }
