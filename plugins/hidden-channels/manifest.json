@@ -4,8 +4,9 @@
 	"name": "Hidden Channels",
 	"description": "Shows hidden channels, adds a lock icon, and an info popup before opening them.",
 	"author": "shin <1381008677301129257>",
+	"contributors": ["k1ng_op <641266820187160576> (https://github.com/k1ng0p \"GitHub\")"],
 	"icon": "LockIcon",
-	"version": "1.0.5",
+	"version": "1.0.6",
 	"dependencies": {
 		"revenge.api": {
 			"version": ">=1 <2"
