@@ -5,7 +5,7 @@
 	"description": "Shows hidden channels, adds a lock icon, and an info popup before opening them.",
 	"author": "shin <1381008677301129257>",
 	"icon": "LockIcon",
-	"version": "1.0.4",
+	"version": "1.0.5",
 	"dependencies": {
 		"revenge.api": {
 			"version": ">=1 <2"
