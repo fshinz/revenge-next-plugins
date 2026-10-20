@@ -23,15 +23,6 @@ export default function SettingsPage({
 						api.jsonStorage.set({ showIcon })
 					}
 				/>
-				<TableSwitchRow
-					label="Show Popup on Hidden Channels"
-					subLabel="Show the information popup when selecting hidden channels."
-					icon={<TableRowAssetIcon name="CircleInformationIcon" />}
-					value={settings.showPopup}
-					onValueChange={(showPopup: boolean) =>
-						api.jsonStorage.set({ showPopup })
-					}
-				/>
 			</TableRowGroup>
 		</Page>
 	)
