@@ -2,12 +2,10 @@ import { Stores } from '@revenge-mod/discord/flux'
 
 export interface Settings {
 	showIcon: boolean
-	showPopup: boolean
 }
 
 export const DEFAULT_SETTINGS: Settings = {
 	showIcon: true,
-	showPopup: true,
 }
 
 // Discord channel types: DM, GROUP_DM, GUILD_CATEGORY

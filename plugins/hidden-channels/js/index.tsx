@@ -1,6 +1,10 @@
 import { AlertActionCreators } from '@revenge-mod/discord/actions'
 import { Design } from '@revenge-mod/discord/design'
+import { getModules } from '@revenge-mod/modules/finders'
+import { withName, withProps } from '@revenge-mod/modules/finders/filters'
 import { instead } from '@revenge-mod/patcher'
+import { lookupGeneratedIconComponent } from '@revenge-mod/utils/discord'
+import { Fragment } from 'react'
 import AlertContent from './AlertContent'
 import SettingsPage from './Settings'
 import {
@@ -77,6 +81,16 @@ export default plugin<{ jsonStorage: Settings }>({
 			state.Permissions = undefined
 		})
 
+		// 0. Turn off Discord's private channel hiding experiment so the server sends real names
+		cleanup(
+			getModules(
+				withProps<{ overrideBucket: (...a: any[]) => void }>('overrideBucket'),
+				Experiments => {
+					Experiments.overrideBucket('apex', '2026-02-private-channel-hiding', 0)
+				},
+			),
+		)
+
 		// 1. Force Permissions Store to treat hidden channels as viewable
 		cleanup(
 			onImportedPath('stores/PermissionStore.tsx', (ns: any) => {
@@ -98,31 +112,61 @@ export default plugin<{ jsonStorage: Settings }>({
 			}),
 		)
 
-		// 2. Intercept Channel Selection / Navigation via ChannelSelectActionCreators
+		// 2. Show the info popup when navigating to a hidden channel
 		cleanup(
-			onImportedPath(
-				'actions/ChannelSelectActionCreators.tsx',
-				(ns: any) => {
-					const owner = ns?.default ?? ns
-					if (typeof owner?.selectChannel !== 'function') return
+			getModules(withProps<Record<string, any>>('transitionToGuild'), Router => {
+				for (const key of Object.keys(Router)) {
+					if (typeof Router[key] !== 'function') continue
 
 					cleanup(
-						instead(owner, 'selectChannel', (args: any[], original: any) => {
-							try {
-								// args[0] is either channelId or { channelId: "..." }
-								const rawId = typeof args?.[0] === 'string' ? args[0] : args?.[0]?.channelId
-								const channel = rawId ? getChannel(rawId) : null
+						instead(Router, key, (args: any[], original: any) => {
+							if (typeof args[0] === 'string') {
+								const channelId = args[0].match(/(\d+)$/)?.[1]
+								const channel = channelId && getChannel(channelId)
 
-								if (channel && isHidden(channel) && settings().showPopup) {
+								if (channel && isHidden(channel)) {
 									confirmOpen(channel, () => original(...args))
-									return
+									return {}
 								}
-							} catch {}
+							}
 
 							return original(...args)
 						}),
 					)
+				}
+			}),
+		)
+
+		// 3. Lock icon next to hidden channel names
+		cleanup(
+			getModules(
+				withName<{ default: (props: any) => any }>('ChannelInfo'),
+				ChannelInfo => {
+					if (typeof ChannelInfo?.default !== 'function') return
+
+					const LockIcon = lookupGeneratedIconComponent(
+						'LockIcon',
+						'LockIcon-secondary',
+						'LockIcon-primary',
+					)
+
+					cleanup(
+						instead(ChannelInfo, 'default', (args: any[], original: any) => {
+							const ret = original(...args)
+							const channel = args[0]?.channel
+							if (!settings().showIcon || !channel || !isHidden(channel))
+								return ret
+
+							return (
+								<Fragment>
+									{LockIcon ? <LockIcon size="sm" /> : null}
+									{ret}
+								</Fragment>
+							)
+						}),
+					)
 				},
+				{ returnNamespace: true },
 			),
 		)
 	},
