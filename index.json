@@ -252,9 +252,12 @@
       "name": "Hidden Channels",
       "description": "Shows hidden channels, adds a lock icon, and an info popup before opening them.",
       "author": "shin <1381008677301129257>",
+      "contributors": [
+        "k1ng_op <641266820187160576> (https://github.com/k1ng0p \"GitHub\")"
+      ],
       "icon": "LockIcon",
       "channels": {
-        "latest": "1.0.5"
+        "latest": "1.0.6"
       },
       "versions": {
         "1.0.0": {
@@ -326,6 +329,19 @@
           "url": "https://fshinz.github.io/revenge-next-plugins/pool/dev.fshin.hidden-channels@1.0.5.zip",
           "sha256": "ee45c1b4b70ca9e26db8ffc0c97a61e10d513eacdf0bc2cba26cde5198dc17e5",
           "size": 2204,
+          "dependencies": {
+            "revenge.api": {
+              "version": ">=1 <2"
+            },
+            "discord": {
+              "version": "*"
+            }
+          }
+        },
+        "1.0.6": {
+          "url": "https://fshinz.github.io/revenge-next-plugins/pool/dev.fshin.hidden-channels@1.0.6.zip",
+          "sha256": "931f66f54fbabcb5f8d3cc3dc955b7df338f6e90b3183e02c428532886a2bafe",
+          "size": 2404,
           "dependencies": {
             "revenge.api": {
               "version": ">=1 <2"
