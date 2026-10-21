@@ -1,13 +1,5 @@
 import { Stores } from '@revenge-mod/discord/flux'
 
-export interface Settings {
-	showIcon: boolean
-}
-
-export const DEFAULT_SETTINGS: Settings = {
-	showIcon: true,
-}
-
 // Discord channel types: DM, GROUP_DM, GUILD_CATEGORY
 const SKIP_TYPES = [1, 3, 4]
 
@@ -76,4 +68,16 @@ export function toArray(args: unknown): any[] {
 	if (args && typeof (args as ArrayLike<unknown>).length === 'number')
 		return Array.from(args as ArrayLike<any>)
 	return []
+}
+
+export function reconnectGateway() {
+	const socket = (Stores as any).GatewayConnectionStore?.getSocket?.()
+	if (!socket?.isSessionEstablished?.()) return false
+
+	const err = Object.assign(new Error('reset'), {
+		error: new Error('reset'),
+		reason: 'reset',
+	})
+	socket.resetSocketAndClearCacheOnError?.(err, err)
+	return true
 }
