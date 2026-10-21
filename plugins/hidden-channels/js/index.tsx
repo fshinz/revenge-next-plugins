@@ -1,18 +1,14 @@
 import { AlertActionCreators } from '@revenge-mod/discord/actions'
 import { Design } from '@revenge-mod/discord/design'
 import { getModules } from '@revenge-mod/modules/finders'
-import { withName, withProps } from '@revenge-mod/modules/finders/filters'
+import { withProps } from '@revenge-mod/modules/finders/filters'
 import { instead } from '@revenge-mod/patcher'
-import { lookupGeneratedIconComponent } from '@revenge-mod/utils/discord'
-import { Fragment } from 'react'
 import AlertContent from './AlertContent'
-import SettingsPage from './Settings'
 import {
-	DEFAULT_SETTINGS,
 	getChannel,
 	isHidden,
 	isViewChannel,
-	type Settings,
+	reconnectGateway,
 	state,
 } from './utils'
 
@@ -66,17 +62,17 @@ function onImportedPath(path: string, cb: (ns: any) => void): () => void {
 	}
 }
 
-export default plugin<{ jsonStorage: Settings }>({
+interface Storage {
+	cacheCleared: boolean
+}
+
+export default plugin<{ jsonStorage: Storage }>({
 	jsonStorage: {
 		load: true,
-		default: DEFAULT_SETTINGS,
+		default: { cacheCleared: false },
 	},
 
-	SettingsComponent: SettingsPage,
-
 	start({ cleanup, jsonStorage }) {
-		const settings = () => ({ ...DEFAULT_SETTINGS, ...jsonStorage.cache })
-
 		cleanup(() => {
 			state.Permissions = undefined
 		})
@@ -87,6 +83,8 @@ export default plugin<{ jsonStorage: Settings }>({
 				withProps<{ overrideBucket: (...a: any[]) => void }>('overrideBucket'),
 				Experiments => {
 					Experiments.overrideBucket('apex', '2026-02-private-channel-hiding', 0)
+					if (!jsonStorage.cache.cacheCleared && reconnectGateway())
+						jsonStorage.set({ cacheCleared: true })
 				},
 			),
 		)
@@ -135,39 +133,6 @@ export default plugin<{ jsonStorage: Settings }>({
 					)
 				}
 			}),
-		)
-
-		// 3. Lock icon next to hidden channel names
-		cleanup(
-			getModules(
-				withName<{ default: (props: any) => any }>('ChannelInfo'),
-				ChannelInfo => {
-					if (typeof ChannelInfo?.default !== 'function') return
-
-					const LockIcon = lookupGeneratedIconComponent(
-						'LockIcon',
-						'LockIcon-secondary',
-						'LockIcon-primary',
-					)
-
-					cleanup(
-						instead(ChannelInfo, 'default', (args: any[], original: any) => {
-							const ret = original(...args)
-							const channel = args[0]?.channel
-							if (!settings().showIcon || !channel || !isHidden(channel))
-								return ret
-
-							return (
-								<Fragment>
-									{LockIcon ? <LockIcon size="sm" /> : null}
-									{ret}
-								</Fragment>
-							)
-						}),
-					)
-				},
-				{ returnNamespace: true },
-			),
 		)
 	},
 })
